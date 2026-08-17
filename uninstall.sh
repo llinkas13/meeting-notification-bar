@@ -15,16 +15,13 @@ BUNDLE_ID="io.llinkas.meeting-notification-bar"
 DATA="$HOME/Library/Application Support/meeting-notification-bar"
 LOGS="$HOME/Library/Logs/meeting-notification-bar"
 
+# Prints the header comment above, rather than a second copy of it. The copy this replaced had
+# already drifted inside a single sitting — the header listed --help and the copy did not. Reading
+# the file's own header by shape (everything after the shebang up to the first non-comment line)
+# means the usage text cannot disagree with the documentation directly above it, and cannot
+# truncate when someone adds a line.
 usage() {
-  cat <<'USAGE'
-uninstall.sh — remove everything this repo installed outside the checkout.
-
-  bash uninstall.sh              stop and remove the app + LaunchAgents
-  bash uninstall.sh --purge      also delete cached events, sync state, logs, and the OAuth token
-  bash uninstall.sh --dry-run    print what would be removed, change nothing
-
-Notes synced from Drive are never touched, at any level. They are your files.
-USAGE
+  awk 'NR > 1 && /^#/ { sub(/^#[ ]?/, ""); print; next } NR > 1 { exit }' "$0"
 }
 
 # Parse arguments BEFORE doing anything destructive, and reject what we do not recognise.

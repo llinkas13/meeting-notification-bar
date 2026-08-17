@@ -26,7 +26,11 @@ set -uo pipefail
 for a in "$@"; do
   case "$a" in
     -h|--help)
-      sed -n '2,18p' "$0" | sed 's/^#\{1,2\} \{0,1\}//'
+      # Print the header block by shape, not by line number: everything after the shebang up to the
+      # first line that isn't a comment. A hard-coded `2,18p` silently truncates the usage the day
+      # someone adds a line to the header, and silently spills code into it the day someone removes
+      # one — a help text that quietly stops matching the script is its own small version of today.
+      awk 'NR > 1 && /^#/ { sub(/^#[ ]?/, ""); print; next } NR > 1 { exit }' "$0"
       exit 0 ;;
     *)
       echo "refresh-events.sh takes no arguments; got: $a" >&2
