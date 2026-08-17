@@ -32,7 +32,10 @@ it has killed the running menu bar twice, once from a `--help` probe and once fr
 copy under a fake `$HOME`. Read this file rather than executing it, at any flag.
 
 The general form, worth carrying to other repos: a sandbox built from paths only contains things
-addressed by path. Process and service management are addressed by name, and escape it.
+addressed by path. Process and service management are addressed by name, and escape it. `pkill` and
+`launchctl` are the two here, but they are examples rather than the list — `osascript`, `defaults`,
+`open -a`, the pasteboard and Notification Centre are all name- or service-addressed and equally
+uncontained by a fake `$HOME`.
 
 ## Every entrypoint must be safe to probe
 

@@ -157,6 +157,21 @@ If it is stale, `tail -20 ~/Library/Logs/meeting-notification-bar/menubar.log` n
 same directory too — they catch failures that happen before the script's own logging starts, which
 is what an empty `menubar.log` actually means.
 
+**Read the log's rate, not just its contents.** A broken fetch retries on a backoff ladder — 15s,
+then 60s, then every 5 minutes — so a sustained outage should write roughly one `FAIL` line every
+five minutes, and a handful in the first minute. Much faster than that means the *backoff* is
+broken, not the fetch:
+
+```bash
+grep -c FAIL ~/Library/Logs/meeting-notification-bar/menubar.log
+awk '{print $2}' ~/Library/Logs/meeting-notification-bar/menubar.log | cut -c1-5 | uniq -c | tail
+```
+
+The second command counts lines per minute. Anything in the tens is the bug this ladder was added
+to kill: the app once re-ran the fetch script every second for as long as fetching stayed broken,
+because a failed fetch never updates the file it was checking the age of. 714 failures in one
+afternoon, and nothing about any individual line looked wrong — only the rate did.
+
 **If you moved or renamed the folder you cloned into**, expect `not authorized yet` even though your
 token is right there. The bundle stamps the checkout's absolute path in at build time, so it is now
 looking somewhere that no longer exists. Confirm with
