@@ -158,11 +158,30 @@ final class EventStore {
         }
     }
 
-    var fileAge: TimeInterval? {
+    /// When the events file was last *written* — which is when the data was actually fetched.
+    ///
+    /// This, not `lastLoad`, is what the footer shows. `lastLoad` is when we last *read* the file,
+    /// and a failed fetch still leaves a perfectly readable file behind: refresh-events.sh keeps the
+    /// previous good JSON on failure by design, so load() parses it, succeeds, and stamps
+    /// `lastLoad` with the current time. The footer therefore used to say "Updated 4:59pm" about
+    /// data fetched hours earlier, which is exactly backwards — the moment the fetch starts failing
+    /// is the moment the timestamp most needs to stop advancing. mtime cannot lie that way: nothing
+    /// touches it unless a fetch actually succeeded and replaced the file.
+    var fileModified: Date? {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: Self.jsonURL.path),
               let modified = attrs[.modificationDate] as? Date else { return nil }
+        return modified
+    }
+
+    var fileAge: TimeInterval? {
+        guard let modified = fileModified else { return nil }
         return Date().timeIntervalSince(modified)
     }
+
+    /// True when the last refresh attempt exited nonzero. Distinct from stale data: this says the
+    /// fetch *tried and failed*, which is worth telling the user about immediately rather than
+    /// waiting for the age to creep up.
+    var lastRefreshFailed = false
 
     /// True when the cache is missing, older than REFRESH_INTERVAL, or holds a different day's
     /// events — the last case is what happens when the Mac sleeps overnight and wakes up still
@@ -185,14 +204,22 @@ final class EventStore {
             task.arguments = [script.path]
             task.standardOutput = FileHandle.nullDevice
             task.standardError = FileHandle.nullDevice
-            // The script logs its own failures to
-            // ~/Library/Logs/meeting-notification-bar/menubar.log and
-            // leaves the previous good JSON in place, so there is nothing to do with an error
-            // here except stop waiting.
-            try? task.run()
-            task.waitUntilExit()
+            // The script logs the detail of its own failures to
+            // ~/Library/Logs/meeting-notification-bar/menubar.log and leaves the previous good JSON
+            // in place. We still need the exit status here, though: without it the app cannot tell
+            // "fetched fresh data" from "kept yesterday's", and silently showing the second as if it
+            // were the first is the failure that hides an expired token for days.
+            var failed = true
+            do {
+                try task.run()
+                task.waitUntilExit()
+                failed = task.terminationStatus != 0
+            } catch {
+                failed = true   // could not even start the script
+            }
             DispatchQueue.main.async {
                 self.refreshing = false
+                self.lastRefreshFailed = failed
                 self.load()
                 completion()
             }
@@ -375,11 +402,29 @@ struct MeetingRow: View {
 struct DayView: View {
     let events: [Event]
     let now: Date
-    let lastLoad: Date?
+    /// When the data was fetched (the events file's mtime) — NOT when it was last read. See
+    /// EventStore.fileModified for why the difference matters.
+    let dataStamp: Date?
+    let refreshFailed: Bool
     let error: String?
     let onOpen: (URL) -> Void
     let onRefresh: () -> Void
     let onQuit: () -> Void
+
+    /// Two independent reasons the footer should stop looking reassuring: the last fetch actually
+    /// failed, or nothing has refreshed it in far longer than the refresh interval (which is what a
+    /// silently-expired token looks like — no error, just a clock that stopped).
+    var isStale: Bool {
+        guard let stamp = dataStamp else { return true }
+        return now.timeIntervalSince(stamp) > REFRESH_INTERVAL * 2
+    }
+
+    var footerText: String {
+        guard let stamp = dataStamp else { return "No data yet" }
+        if refreshFailed { return "Fetch failed · \(clockTime(stamp))" }
+        if isStale { return "Stale · \(clockTime(stamp))" }
+        return "Updated \(clockTime(stamp))"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -405,11 +450,9 @@ struct DayView: View {
             Divider()
 
             HStack {
-                if let stamp = lastLoad {
-                    Text("Updated \(clockTime(stamp))")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
-                }
+                Text(footerText)
+                    .font(.system(size: 10))
+                    .foregroundStyle(refreshFailed || isStale ? Color.orange : Color.secondary)
                 Spacer()
                 Button("Refresh", action: onRefresh)
                     .buttonStyle(.link)
@@ -603,7 +646,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let host = NSHostingView(rootView: DayView(
             events: store.events,
             now: Date(),
-            lastLoad: store.lastLoad,
+            dataStamp: store.fileModified,
+            refreshFailed: store.lastRefreshFailed,
             error: store.lastError,
             onOpen: { [weak self] url in
                 NSWorkspace.shared.open(url)
@@ -836,6 +880,13 @@ enum PrintOnce {
             print("file age:  (no file)")
         }
         if let err = store.lastError { print("error:     \(err)") }
+        // Exactly what the dropdown's footer would say right now. Printed because "is this showing
+        // me live data or a frozen snapshot?" is the question --print exists to answer, and the
+        // countdown itself looks identical either way.
+        let footer = DayView(events: store.events, now: Date(), dataStamp: store.fileModified,
+                             refreshFailed: store.lastRefreshFailed, error: store.lastError,
+                             onOpen: { _ in }, onRefresh: {}, onQuit: {})
+        print("freshness: \(footer.footerText)\(footer.isStale ? "   <-- STALE: the fetch is failing; see menubar.log" : "")")
         print("events:    \(store.events.count) total, \(store.timed.count) timed")
         for e in store.timed {
             let start = e.startDate.map(clockTime) ?? "?"
@@ -850,7 +901,8 @@ enum PrintOnce {
         // visible frame's top edge — on the primary screen with no notch, that is the menu bar's
         // bottom edge, which is exactly what openPanel() measures from the real status item.
         let host = NSHostingView(rootView: DayView(
-            events: store.events, now: Date(), lastLoad: store.lastLoad, error: store.lastError,
+            events: store.events, now: Date(), dataStamp: store.fileModified,
+            refreshFailed: store.lastRefreshFailed, error: store.lastError,
             onOpen: { _ in }, onRefresh: {}, onQuit: {}))
         let natural = host.fittingSize
         print("panel natural height: \(Int(natural.height))pt")

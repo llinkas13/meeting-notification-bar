@@ -7,9 +7,19 @@ not expire on a normal schedule, so this is genuinely one-time. On a personal `@
 expires after **7 days** and you re-approve weekly. Step 3 covers why and what to do about it — read
 it before you start, because it is the difference between a one-time setup and a recurring chore.
 
-You are creating an OAuth client that belongs to *you* and runs only on this Mac. Nothing is
-published, nothing is reviewed by Google, and no verification is needed, because the app stays in
-testing mode with you as the only user.
+## First: yes, this means you
+
+If a colleague shared this repo with you, **you make your own Google Cloud project.** You do not wait
+for them to send you anything, and they cannot set this up on your behalf. Every "you" below is you,
+the person installing it — not whoever wrote the repo.
+
+That is not an inconvenience, it is the design. The OAuth client you create belongs to your own
+Google account and grants access to *your* calendar only. Sharing one client between people would
+mean sharing a credential and pointing everyone at one person's project quota, and it would still
+require each person to approve consent individually. Ten minutes of clicking is the cheaper trade.
+
+Nothing you create here is published, reviewed by Google, or verified, because the app stays in
+testing mode with you as its only user.
 
 ## 1. Create a project
 

@@ -68,7 +68,9 @@ and could not: the scope is `drive.readonly`.
 git clone https://github.com/llinkas13/meeting-notification-bar.git
 cd meeting-notification-bar
 
-# 1. the browser-clicks part — see docs/google-cloud-setup.md
+# 1. Make your OWN Google Cloud OAuth client first — docs/google-cloud-setup.md, ~10 min of
+#    clicking. You create it under your own Google account; nobody can hand you one. Only after
+#    you have downloaded its JSON will the two lines below have anything to move.
 mkdir -p .secrets
 mv ~/Downloads/client_secret_*.json .secrets/oauth-client.json
 
