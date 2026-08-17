@@ -1,0 +1,11 @@
+# Credentials. Never commit either of these.
+.secrets/
+
+# Personal config — copy config.example.json to config.json.
+config.json
+
+# Build output.
+menubar/build/
+
+# macOS
+.DS_Store
