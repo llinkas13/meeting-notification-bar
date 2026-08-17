@@ -25,6 +25,15 @@ stale countdown instead of a blank one.
 To hand a command over in Claude Code, ask the user to paste it with a `!` prefix so you see the
 output: `! node bin/auth.js --login`.
 
+**`uninstall.sh` cannot be safely tested in a sandbox.** Overriding `$HOME` and copying the script
+somewhere temporary is not enough: it also calls `launchctl` and `pkill -f NextMeeting`, and neither
+honours `$HOME`. Both reach the live machine from any working directory. That is not hypothetical —
+it has killed the running menu bar twice, once from a `--help` probe and once from a run against a
+copy under a fake `$HOME`. Read this file rather than executing it, at any flag.
+
+The general form, worth carrying to other repos: a sandbox built from paths only contains things
+addressed by path. Process and service management are addressed by name, and escape it.
+
 ## Every entrypoint must be safe to probe
 
 `--help` and an unrecognised flag must print usage and change nothing, in every script and binary

@@ -4,6 +4,7 @@
 #   bash uninstall.sh              stop and remove the app + LaunchAgents
 #   bash uninstall.sh --purge      also delete cached events, sync state, logs, and the OAuth token
 #   bash uninstall.sh --dry-run    print what would be removed, change nothing
+#   bash uninstall.sh --purge --dry-run   rehearse a purge; --dry-run wins in any order
 #   bash uninstall.sh --help       print usage and exit without touching anything
 #
 # Notes it synced from Drive are NOT touched, at any level. They are your files.
@@ -30,16 +31,23 @@ usage() {
 # Every other argument — including `--help` — fell through to the removal code below and performed a
 # real uninstall. That is exactly backwards: the cautious instinct (ask it what it does before
 # running it) was the one that destroyed things, and it cost a live install during testing.
+#
+# Every argument is inspected, not just $1. The earlier version read `$1` alone and rejected a
+# second argument outright, which was safe but unhelpful: `--purge --dry-run` is the natural way to
+# ask "show me what purging would do" — you name the action, then qualify it — and being told "too
+# many arguments" invites dropping the qualifier rather than reordering it. Now the combination
+# works, and --dry-run wins wherever it appears, so the safety flag can never be the one silently
+# discarded.
 PURGE=0
 DRY=0
-case "${1:-}" in
-  --purge)   PURGE=1 ;;
-  --dry-run) DRY=1 ;;
-  -h|--help) usage; exit 0 ;;
-  "")        ;;
-  *)         echo "unknown flag: $1" >&2; echo >&2; usage >&2; exit 2 ;;
-esac
-[ $# -gt 1 ] && { echo "too many arguments" >&2; usage >&2; exit 2; }
+for a in "$@"; do
+  case "$a" in
+    --purge)   PURGE=1 ;;
+    --dry-run) DRY=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *)         echo "unknown flag: $a" >&2; echo >&2; usage >&2; exit 2 ;;
+  esac
+done
 
 run() { if [ "$DRY" = 1 ]; then echo "[dry-run] $*"; else "$@"; fi; }
 
@@ -68,7 +76,11 @@ fi
 
 if [ "$PURGE" = 1 ]; then
   run rm -rf "$DATA" "$LOGS" "$REPO/.secrets/token.json"
-  echo "==> purged cached events, sync state, logs, and the OAuth token"
+  if [ "$DRY" = 1 ]; then
+    echo "==> would purge cached events, sync state, logs, and the OAuth token"
+  else
+    echo "==> purged cached events, sync state, logs, and the OAuth token"
+  fi
   echo "    the OAuth client ($REPO/.secrets/oauth-client.json) is kept; delete it by hand if you want it gone"
   echo "    revoke the Google grant at https://myaccount.google.com/permissions"
 else
