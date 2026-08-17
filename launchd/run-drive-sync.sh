@@ -28,8 +28,20 @@ if [ -f "$LOG" ] && [ "$(wc -c <"$LOG" | tr -d ' ')" -gt 262144 ]; then
   mv -f "$LOG" "$LOG.1"
 fi
 
-{
+run() {
   printf '\n===== %s =====\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')"
   command -v node >/dev/null 2>&1 || { echo "FAIL node not found on PATH ($PATH)"; exit 1; }
+  # Argument validation lives in sync-drive-docs.js, which rejects unknown flags and exits 2. This
+  # wrapper deliberately does not second-guess it — one parser, not two that can disagree.
   node "$HOME_DIR/bin/sync-drive-docs.js" "$@"
-} >>"$LOG" 2>&1
+}
+
+# Everything used to go to the log unconditionally, so running this by hand printed nothing at all:
+# --help wrote its usage into a file the reader had not been told about. When stderr is a terminal,
+# show the output as well as recording it. launchd gets no terminal, so scheduled runs are unchanged.
+# pipefail is already set, so tee cannot mask a nonzero exit from node.
+if [ -t 2 ]; then
+  run "$@" 2>&1 | tee -a "$LOG"
+else
+  run "$@" >>"$LOG" 2>&1
+fi

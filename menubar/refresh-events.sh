@@ -19,6 +19,22 @@
 
 set -uo pipefail
 
+# Take no argument, and say so, rather than fetching anyway. Ignoring argv is how `uninstall.sh
+# --help` performed a real uninstall: a script that accepts anything and acts regardless looks
+# identical to one that understood you. Anyone meeting this file for the first time — human or
+# agent — types --help at it, and that has to be free.
+for a in "$@"; do
+  case "$a" in
+    -h|--help)
+      sed -n '2,18p' "$0" | sed 's/^#\{1,2\} \{0,1\}//'
+      exit 0 ;;
+    *)
+      echo "refresh-events.sh takes no arguments; got: $a" >&2
+      echo "  the output path is set with \$MNB_EVENTS_FILE, not a flag — see --help" >&2
+      exit 2 ;;
+  esac
+done
+
 # MNB_HOME wins when set, because the copy of this script inside NextMeeting.app cannot find the
 # checkout by walking up from its own location — two levels up from Contents/Resources is the bundle,
 # not the repo. build.sh installs a shim that exports MNB_HOME and re-execs this file.
@@ -45,7 +61,14 @@ mkdir -p "$LOG_DIR" "$DATA_DIR" "$(dirname "$OUT")"
 if [ -f "$LOG" ] && [ "$(wc -c <"$LOG" | tr -d ' ')" -gt 262144 ]; then
   mv -f "$LOG" "$LOG.1"
 fi
-log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$*" >>"$LOG"; }
+log() {
+  printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$*" >>"$LOG"
+  # Run by hand this script printed nothing whatsoever — success and failure were both silent, and
+  # the only way to learn which had happened was to know the log file existed. Under launchd stderr
+  # is not a terminal, so scheduled runs stay exactly as quiet as before.
+  [ -t 2 ] && printf '%s\n' "$*" >&2
+  return 0
+}
 
 trap 'rm -f "$TMP"' EXIT
 

@@ -32,7 +32,10 @@ for a in "$@"; do
   case "$a" in
     --run)     RUN=1 ;;
     --install) INSTALL=1 ;;
-    *) echo "unknown flag: $a" >&2; exit 2 ;;
+    # Asking for help is not a usage error. Every entrypoint here answers --help with exit 0 and
+    # does nothing — see CLAUDE.md for why that rule exists.
+    -h|--help) sed -n '2,18p' "$0" | sed 's/^#\{1,2\} \{0,1\}//'; exit 0 ;;
+    *) echo "unknown flag: $a" >&2; echo "  try: bash menubar/build.sh --help" >&2; exit 2 ;;
   esac
 done
 

@@ -25,6 +25,18 @@ stale countdown instead of a blank one.
 To hand a command over in Claude Code, ask the user to paste it with a `!` prefix so you see the
 output: `! node bin/auth.js --login`.
 
+## Every entrypoint must be safe to probe
+
+`--help` and an unrecognised flag must print usage and change nothing, in every script and binary
+here. This is a rule about the code, not about you: `uninstall.sh --help` once performed a real
+uninstall, because it set its one flag from `$1` and then ran the removal regardless of what `$1`
+actually was. An agent doing the cautious thing — ask the tool what it does before running it — was
+the thing that destroyed a live install.
+
+So if you add an entrypoint, parse and reject arguments *before* the first side effect. And do not
+rely on a list of dangerous commands to keep you safe: nobody typed `launchctl` that day. They typed
+`--help` at a script that contained one.
+
 ## Trust exit codes, not output
 
 `bash setup.sh --check` changes nothing and is always safe. **Exit 0 means ready; exit 1 means not
