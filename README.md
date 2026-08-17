@@ -163,14 +163,25 @@ five minutes, and a handful in the first minute. Much faster than that means the
 broken, not the fetch:
 
 ```bash
-grep -c FAIL ~/Library/Logs/meeting-notification-bar/menubar.log
-awk '{print $2}' ~/Library/Logs/meeting-notification-bar/menubar.log | cut -c1-5 | uniq -c | tail
+L=~/Library/Logs/meeting-notification-bar/menubar.log
+grep -c FAIL "$L"
+grep -E '^[0-9]{4}-' "$L" | awk '{print substr($2,1,5)}' | uniq -c | tail
 ```
 
 The second command counts lines per minute. Anything in the tens is the bug this ladder was added
 to kill: the app once re-ran the fetch script every second for as long as fetching stayed broken,
 because a failed fetch never updates the file it was checking the age of. 714 failures in one
 afternoon, and nothing about any individual line looked wrong — only the rate did.
+
+The `grep -E '^[0-9]{4}-'` is not decoration. Two line shapes share this log: the script's own,
+which start with a date, and node's `[fetch-events] FAILED:`, which do not. During an outage they
+interleave, and since `uniq` only collapses *adjacent* duplicates, counting without the filter
+returns a column of `1`s — it goes blind in exactly the situation it exists to detect. Healthy data
+cannot show you this, because successes are one timestamped line each with nothing interleaved:
+both versions agree perfectly right up until the moment one of them matters.
+
+Which is the rule for anything else added to this section: **test a diagnostic against the broken
+data, not the working data.** A check that passes on a healthy system has demonstrated nothing.
 
 **If you moved or renamed the folder you cloned into**, expect `not authorized yet` even though your
 token is right there. The bundle stamps the checkout's absolute path in at build time, so it is now
