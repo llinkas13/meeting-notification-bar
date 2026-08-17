@@ -108,11 +108,31 @@ if [ "$INSTALL" = 1 ]; then
   if [ -d "$DEST/NextMeeting.app" ]; then
     EXISTING_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$DEST/NextMeeting.app/Contents/Info.plist" 2>/dev/null || echo '')"
     if [ -n "$EXISTING_ID" ] && [ "$EXISTING_ID" != "$BUNDLE_ID" ]; then
+      # Find the LaunchAgent that actually points at this path instead of deriving its label from
+      # the bundle id. Those are not the same string: a bundle id may already end in `.menubar`, and
+      # appending another `.menubar` yields a label that matches nothing. Following instructions
+      # built that way is worse than having none — the bootout and the rm both no-op, the third
+      # command deletes the app regardless, and launchd is left loaded against a missing binary.
+      OTHER_LABEL=""
+      for p in "$HOME/Library/LaunchAgents"/*.plist; do
+        [ -e "$p" ] || continue
+        if /usr/libexec/PlistBuddy -c 'Print :ProgramArguments' "$p" 2>/dev/null \
+             | grep -qF "$DEST/NextMeeting.app"; then
+          OTHER_LABEL="$(basename "$p" .plist)"
+          break
+        fi
+      done
+
       echo "" >&2
       echo "   REFUSING TO INSTALL: $DEST/NextMeeting.app already belongs to $EXISTING_ID." >&2
       echo "   Two apps at one path with two LaunchAgents will fight. Remove the other one first:" >&2
-      echo "       launchctl bootout \"gui/\$UID/$EXISTING_ID.menubar\"" >&2
-      echo "       rm -f ~/Library/LaunchAgents/$EXISTING_ID.menubar.plist" >&2
+      if [ -n "$OTHER_LABEL" ]; then
+        echo "       launchctl bootout \"gui/\$UID/$OTHER_LABEL\"" >&2
+        echo "       rm -f ~/Library/LaunchAgents/$OTHER_LABEL.plist" >&2
+      else
+        echo "       # no LaunchAgent references that path; check by hand:" >&2
+        echo "       grep -l NextMeeting ~/Library/LaunchAgents/*.plist" >&2
+      fi
       echo "       rm -rf $DEST/NextMeeting.app" >&2
       echo "" >&2
       exit 1

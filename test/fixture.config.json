@@ -1,7 +1,6 @@
 {
-  "_comment": "Config fixture for the test suite, tracked on purpose — unlike config.json, which is gitignored and per-machine. test/lib.test.js points MNB_CONFIG here so the suite reads these values on any machine. It deliberately sets only some keys: the assertions check that the rest fall back to the defaults in lib/config.js.",
+  "_comment": "Config fixture for the test suite, tracked on purpose — unlike config.json, which is gitignored and per-machine. test/lib.test.js points MNB_CONFIG here so the suite reads these values on any machine. It deliberately sets only some keys: the assertions check that the rest fall back to the defaults in lib/config.js. timezone is intentionally absent: it is no longer a config key, always resolved from $TZ/Intl instead.",
   "calendarId": "test-calendar@example.test",
-  "timezone": "America/New_York",
   "driveSync": {
     "outputDir": "~/tmp/meeting-notification-bar-test",
     "lookbackDays": 7

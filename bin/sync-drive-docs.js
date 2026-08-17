@@ -37,6 +37,33 @@ const argv = process.argv.slice(2);
 const has = f => argv.includes(f);
 const arg = (n, d) => { const i = argv.indexOf(n); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };
 
+// Reject anything we do not recognise, BEFORE any network call or write.
+//
+// Without this, an unknown flag was simply ignored — so `--help`, the first thing anyone (and
+// every agent) tries, did not print usage and did not imply --dry-run. It fell straight through to
+// the real, writing code path. Silently doing the dangerous thing in response to a request for
+// documentation is the worst possible default.
+const BOOL_FLAGS = ['--dry-run', '--reset', '--force'];
+const VALUE_FLAGS = ['--since', '--marker', '--exclude'];
+const USAGE = `sync-drive-docs.js — mirror matching Google Docs to local markdown (one-way, read-only).
+
+  --dry-run            list what would be pulled; write nothing, do not advance the cursor
+  --force              overwrite existing files and re-sync Docs already seen
+  --reset              forget the saved cursor and re-examine everything
+  --since <ISO8601>    override the start of the window, e.g. 2026-07-01T00:00:00Z
+  --marker <text>      Drive title substring to match (default: config driveSync.titleContains)
+  --exclude <regex>    case-insensitive title regex to skip
+
+Files are never overwritten without --force. Nothing is ever written to Drive.`;
+
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (VALUE_FLAGS.includes(a)) { i++; continue; }
+  if (BOOL_FLAGS.includes(a)) continue;
+  console.error(USAGE);
+  process.exit(a === '--help' || a === '-h' ? 0 : 2);
+}
+
 const DRY = has('--dry-run');
 const RESET = has('--reset');
 const FORCE = has('--force');

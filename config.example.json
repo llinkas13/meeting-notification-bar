@@ -2,12 +2,8 @@
   "_comment": "Copy to config.json (gitignored) — setup.sh does that for you. Every key is optional; these are the defaults.",
 
   "calendarId": "primary",
-  "timezone": "",
-
-  "_timezone": "Leave empty to use $TZ, or the system zone if that is unset too. Set it explicitly (e.g. America/New_York) if you want the day window pinned regardless of where the laptop is.",
 
   "driveSync": {
-    "enabled": false,
     "titleContains": "Notes by Gemini",
     "outputDir": "~/Documents/meeting-notes",
     "lookbackDays": 30,
@@ -16,10 +12,10 @@
   },
 
   "_driveSync": {
-    "enabled": "Only read by setup.sh --with-sync as a sanity flag; the schedule is what actually turns the sync on. Running bin/sync-drive-docs.js by hand works regardless.",
     "titleContains": "Drive title substring to match. 'Notes by Gemini' is what Google names auto-generated meeting notes Docs.",
     "outputDir": "Where the markdown lands. One file per Doc, named <created-date>-<slug>.md. Existing files are never overwritten without --force.",
     "lookbackDays": "How far back the very first run looks. After that a saved cursor takes over.",
+    "maxPerRun": "Ceiling on Docs exported in one run, so a first sync of a large Drive cannot run away. Hitting it logs 'WARNING: N Docs queued, capping at 60 this run' and the rest come next run.",
     "exclude": "Case-insensitive regex on the Doc title. Anything matching is skipped — e.g. 'orientation|1:1|HR'."
   }
 }

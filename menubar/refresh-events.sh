@@ -7,12 +7,15 @@
 # work and every refresh silently fails. This wrapper rebuilds a usable PATH first.
 #
 # Output:  ~/Library/Application Support/meeting-notification-bar/events.json
+#          or $MNB_EVENTS_FILE when set — must agree with whatever the app was launched with, or
+#          this script writes one file while NextMeeting reads another.
 # Log:     ~/Library/Logs/meeting-notification-bar/menubar.log   (rotated past ~256 KB)
 #
 # Written atomically (temp file + mv) so the app never reads a half-written JSON array. On failure
 # the previous good file is left untouched — a stale countdown beats a blank menu bar.
 #
 # Usage:  bash menubar/refresh-events.sh
+#         MNB_EVENTS_FILE=/tmp/fixture.json bash menubar/refresh-events.sh
 
 set -uo pipefail
 
@@ -23,7 +26,7 @@ HOME_DIR="${MNB_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 LOG_DIR="$HOME/Library/Logs/meeting-notification-bar"
 DATA_DIR="$HOME/Library/Application Support/meeting-notification-bar"
 LOG="$LOG_DIR/menubar.log"
-OUT="$DATA_DIR/events.json"
+OUT="${MNB_EVENTS_FILE:-$DATA_DIR/events.json}"
 TMP="$OUT.tmp.$$"
 
 # PATH_BASE is the known-good order; PATH_EXTRA adds version managers that exist; the inherited PATH
@@ -38,7 +41,7 @@ for d in "${NVM_DIR:-$HOME/.nvm}/current/bin" "${ASDF_DATA_DIR:-$HOME/.asdf}/shi
 done
 export PATH="$PATH_BASE$PATH_EXTRA${PATH:+:$PATH}"
 
-mkdir -p "$LOG_DIR" "$DATA_DIR"
+mkdir -p "$LOG_DIR" "$DATA_DIR" "$(dirname "$OUT")"
 if [ -f "$LOG" ] && [ "$(wc -c <"$LOG" | tr -d ' ')" -gt 262144 ]; then
   mv -f "$LOG" "$LOG.1"
 fi

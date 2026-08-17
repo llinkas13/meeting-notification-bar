@@ -9,17 +9,26 @@
 //
 // Where the data comes from: this app reads a JSON file and nothing else. It never talks to
 // Google, and it never talks to an LLM. `menubar/refresh-events.sh` runs `bin/fetch-events.js`
-// and writes ~/Library/Application Support/meeting-notification-bar/events.json; this app spawns
-// that script when the file goes stale. The reason for the indirection is that a GUI app inherits
-// a minimal PATH with no mise/nvm/asdf shims, so it cannot find `node` itself.
+// and writes ~/Library/Application Support/meeting-notification-bar/events.json (or
+// $MNB_EVENTS_FILE, when set — see EventStore.jsonURL); this app spawns that script when the file
+// goes stale. The reason for the indirection is that a GUI app inherits a minimal PATH with no
+// mise/nvm/asdf shims, so it cannot find `node` itself.
 //
-// Two deliberate choices worth knowing before editing:
+// Deliberate choices worth knowing before editing:
 //
 //   * The 1-second timer only recomputes the *string*. Events are re-fetched at most every
-//     REFRESH_INTERVAL seconds. Querying the calendar every second would be 3600 API calls an
-//     hour for data that changes twice a day.
+//     REFRESH_INTERVAL seconds, plus on wake from sleep and on a system timezone change.
+//     Querying the calendar every second would be 3600 API calls an hour for data that changes
+//     twice a day.
 //   * The title uses a monospaced-digit font. With the proportional system font the menu bar
 //     visibly reflows every time a digit changes width, which reads as a bug.
+//   * The dropdown activates the app (NSApp.activate) so Esc — a *local* key monitor — actually
+//     gets delivered; closePanel() calls NSApp.deactivate() so focus returns to whatever the user
+//     was in before, since nothing else does that for an accessory app. See openPanel/closePanel.
+//   * The dropdown's height is clamped to what fits below the menu bar, and the rows scroll instead
+//     of growing without bound — a busy day used to push the panel's top edge above the screen, and
+//     since the panel draws at .popUpMenu level that hid the *earliest* meetings behind the menu bar
+//     itself. See clampedPanelHeight, DayView's ScrollView, and openPanel().
 //
 // Build: bash menubar/build.sh
 
@@ -36,6 +45,10 @@ let TITLE_MAX = 24
 
 /// Under this many seconds to go, the menu bar text turns orange.
 let SOON_THRESHOLD: TimeInterval = 5 * 60
+
+/// Slack between the panel's clamped bottom edge and the edge of the visible screen (or the Dock).
+/// Matches the +4 already used for the x-axis edge clamp in openPanel().
+let PANEL_BOTTOM_MARGIN: CGFloat = 4
 
 // MARK: - Model
 
@@ -108,9 +121,17 @@ final class EventStore {
         lastLoad = Date()
     }
 
-    static let jsonURL: URL = FileManager.default
-        .homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Application Support/meeting-notification-bar/events.json")
+    /// $MNB_EVENTS_FILE overrides this when set, so another system can drive the display (or a
+    /// test can point at fixture data) without forking the app. `refresh-events.sh` and
+    /// `lib/paths.js` both honour the same variable — all three must agree on one path.
+    static let jsonURL: URL = {
+        if let override = ProcessInfo.processInfo.environment["MNB_EVENTS_FILE"], !override.isEmpty {
+            return URL(fileURLWithPath: override)
+        }
+        return FileManager.default
+            .homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/meeting-notification-bar/events.json")
+    }()
 
     /// The refresh script, located inside this app bundle so a moved checkout still works.
     /// Bundle layout: NextMeeting.app/Contents/MacOS/NextMeeting, and the script is installed
@@ -261,6 +282,28 @@ func joinURL(_ event: Event) -> URL? {
     return URL(string: link)
 }
 
+/// How tall the dropdown panel is allowed to get, given how tall its content naturally wants to be.
+///
+/// macOS screen coordinates have y increasing upward. `anchorMinY` is the bottom edge of the menu
+/// bar — the panel's top edge sits there, flush, with no gap, by design (see the comment on
+/// DropdownPanel below for why: it used to be an NSPopover, which always leaves one). The panel
+/// occupies `[anchorMinY - height, anchorMinY]`, so it stays fully on screen only while
+/// `height <= anchorMinY - visibleMinY`; `margin` shaves a little off that so the bottom edge
+/// doesn't sit flush against the edge of the screen (or the Dock, which `visibleMinY` already
+/// excludes).
+///
+/// Pure and screen-independent on purpose: NSScreen isn't available in the --print code path (no
+/// window is ever opened there), so this is exercised directly by --selftest with injected numbers
+/// instead. openPanel() and PrintOnce both call it, PrintOnce with an approximated anchor since it
+/// has no real status item to measure.
+func clampedPanelHeight(natural: CGFloat, anchorMinY: CGFloat, visibleMinY: CGFloat, margin: CGFloat) -> (height: CGFloat, clamped: Bool) {
+    let maxHeight = max(0, anchorMinY - visibleMinY - margin)
+    if natural > maxHeight {
+        return (maxHeight, true)
+    }
+    return (natural, false)
+}
+
 /// One meeting in the dropdown. The whole row is the button — clicking anywhere on it opens the
 /// meeting. An earlier version put a small "Join" link under the title and left the row itself
 /// dead, which is a worse target and invites the reasonable assumption that clicking the meeting
@@ -319,6 +362,16 @@ struct MeetingRow: View {
 }
 
 /// The dropdown: the whole day, with the live one highlighted.
+///
+/// The rows sit in a `ScrollView` rather than growing the panel without limit: on a day busy
+/// enough (roughly a dozen-plus meetings on a laptop screen), an unbounded panel's top edge ends up
+/// above the menu bar and, because the panel draws at `.popUpMenu` level, hides the *earliest*
+/// meetings behind the menu bar itself — the ones most likely to matter. openPanel() clamps the
+/// hosting view's total height to what actually fits below the menu bar (see
+/// `clampedPanelHeight`); giving the `ScrollView` here `.frame(maxHeight: .infinity)` while "Today",
+/// the divider, and the footer keep their natural size is what lets that squeeze land on the rows
+/// specifically, so Refresh/Quit stay reachable at any meeting count instead of scrolling off with
+/// the list.
 struct DayView: View {
     let events: [Event]
     let now: Date
@@ -339,9 +392,14 @@ struct DayView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(Array(events.enumerated()), id: \.offset) { _, event in
-                    MeetingRow(event: event, now: now, onOpen: onOpen)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array(events.enumerated()), id: \.offset) { _, event in
+                            MeetingRow(event: event, now: now, onOpen: onOpen)
+                        }
+                    }
                 }
+                .frame(maxHeight: .infinity)
             }
 
             Divider()
@@ -397,6 +455,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var timer: Timer?
     private var lastRendered = ""
 
+    /// Bumped on every openPanel() so a deferred teardown from an older closePanel() call can tell
+    /// it is stale and skip itself instead of nil-ing out a view that was just reopened. See
+    /// closePanel().
+    private var panelGeneration = 0
+
+    /// openPanel() calls NSApp.activate() so the local Esc monitor actually receives keystrokes
+    /// (see the file header). Activation is asynchronous and can itself surface a resign-active
+    /// notification in the same beat, which would otherwise slam the panel shut the instant it
+    /// opens. Resign notifications arriving before this deadline are ignored. See
+    /// appDidResignActive().
+    private var suppressResignUntil: Date?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.target = self
@@ -429,10 +499,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(didWake),
             name: NSWorkspace.didWakeNotification, object: nil)
+
+        // The Mac's timezone can change (travel, a manual switch) without ever sleeping. The
+        // cached events.json still describes the old zone's day until this fires or the next
+        // REFRESH_INTERVAL tick, whichever comes first — so treat it exactly like a wake.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(timeZoneChanged),
+            name: NSNotification.Name.NSSystemTimeZoneDidChange, object: nil)
+
+        // A panel left floating over a cmd-tabbed-to app or a different Space is a dead popover
+        // that a real NSPopover would have dismissed for free. See appDidResignActive() for why
+        // resigning active status doesn't always mean "close it".
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(appDidResignActive),
+            name: NSApplication.didResignActiveNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(activeSpaceChanged),
+            name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
     }
 
     @objc private func didWake() {
         store.refresh { [weak self] in self?.render(force: true) }
+    }
+
+    @objc private func timeZoneChanged() {
+        // Foundation caches the system time zone; without this, Calendar.current and any
+        // DateFormatter using the implicit .current zone (clockTime, needsRefresh's
+        // isDateInToday) keep answering with the old zone even after the OS has switched. Nothing
+        // in this file stores a Calendar or DateFormatter across calls — both are constructed
+        // fresh per call — so this reset is the only stale-cache concern.
+        NSTimeZone.resetSystemTimeZone()
+        store.refresh { [weak self] in self?.render(force: true) }
+    }
+
+    @objc private func appDidResignActive() {
+        // openPanel() activates this accessory app so the Esc key monitor works. That activation
+        // can itself generate a resign-active notification (this app briefly loses, then regains,
+        // active status as macOS hands it focus) — closing on that would slam the panel shut the
+        // instant it opens. Only treat this as "the user switched away" once the grace window from
+        // openPanel() has passed.
+        if let until = suppressResignUntil, Date() < until { return }
+        closePanel()
+    }
+
+    @objc private func activeSpaceChanged() {
+        closePanel()
     }
 
     @objc private func tick() {
@@ -474,6 +585,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func openPanel() {
         guard let button = statusItem.button, let buttonWindow = button.window else { return }
+        panelGeneration += 1
+
+        // Makes this .accessory app the active app so the local Esc key monitor below actually
+        // receives keystrokes. A local monitor (NSEvent.addLocalMonitorForEvents) only sees events
+        // delivered to this process, and this app is never active on its own — makeKey() further
+        // down grants the panel key status *within* an inactive app, which is not enough to route
+        // keyboard events to it. activate(ignoringOtherApps:) (rather than the macOS-14-only
+        // no-argument NSApp.activate()) keeps this working back to the app's stated macOS 13
+        // minimum.
+        NSApp.activate(ignoringOtherApps: true)
+        // See appDidResignActive(): activation is async and can surface its own resign-active
+        // notification; ignore resigns for a short window so that doesn't close the panel we just
+        // opened.
+        suppressResignUntil = Date().addingTimeInterval(0.35)
 
         let host = NSHostingView(rootView: DayView(
             events: store.events,
@@ -496,18 +621,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         host.layer?.borderWidth = 1
         host.layer?.borderColor = NSColor.separatorColor.cgColor
 
-        let size = host.fittingSize
+        // Screen coordinates of the status item itself. anchor.minY is the bottom edge of the menu
+        // bar, so subtracting the panel height puts the top edge flush against it — no gap.
+        let anchor = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+
+        // fittingSize with no frame constraint yet is the content's *natural* height — as tall as
+        // it would be with every row visible and nothing scrolling. On a busy day that can be
+        // taller than the screen; clampedPanelHeight() is what turns that into a height that
+        // actually fits, and the ScrollView in DayView (`.frame(maxHeight: .infinity)`) is what
+        // lets the rows specifically absorb the difference instead of "Today" or the footer.
+        let natural = host.fittingSize
+        var size = natural
+        if let visible = (buttonWindow.screen ?? NSScreen.main)?.visibleFrame {
+            let (clampedHeight, _) = clampedPanelHeight(
+                natural: natural.height, anchorMinY: anchor.minY, visibleMinY: visible.minY,
+                margin: PANEL_BOTTOM_MARGIN)
+            size.height = clampedHeight
+        }
         host.frame = NSRect(origin: .zero, size: size)
         panel.contentView = host
         panel.setContentSize(size)
 
-        // Screen coordinates of the status item itself. anchor.minY is the bottom edge of the menu
-        // bar, so subtracting the panel height puts the top edge flush against it — no gap.
-        let anchor = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
         var origin = NSPoint(x: anchor.minX, y: anchor.minY - size.height)
         if let visible = (buttonWindow.screen ?? NSScreen.main)?.visibleFrame {
             // A status item near the right edge would otherwise hang the panel off-screen.
             origin.x = min(max(origin.x, visible.minX + 4), visible.maxX - size.width - 4)
+            // Belt-and-braces: size.height is already clamped to fit below the menu bar, so this
+            // should be a no-op, but it costs nothing to keep the panel from going off the bottom
+            // of the screen if some future edit changes the clamp above.
             origin.y = max(origin.y, visible.minY + 4)
         }
         panel.setFrameOrigin(origin)
@@ -518,10 +659,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func closePanel() {
+        // orderOut(nil) alone is enough to hide the panel. Tearing down contentView happens below,
+        // deferred — closePanel() can be called synchronously from inside the SwiftUI row's own
+        // onOpen action (openPanel()'s onOpen closure), while AppKit is still dispatching that
+        // mouse-up through the very NSHostingView this would release. Nil-ing it out mid-dispatch
+        // is a use-after-free risk.
         panel.orderOut(nil)
-        panel.contentView = nil
         statusItem.button?.highlight(false)
         removeDismissMonitors()
+
+        // Return focus to whatever the user was in before openPanel() activated this app. Nothing
+        // else does this for an .accessory app — without it, dismissing the panel (Esc, or a click
+        // that isn't on another app's window) leaves this menu-bar-only app "active" with no
+        // visible window, which is not a sensible place for keyboard focus to land.
+        NSApp.deactivate()
+
+        let generation = panelGeneration
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.panelGeneration == generation else { return }
+            self.panel.contentView = nil
+        }
     }
 
     /// A transient popover dismissed itself; a panel has to be told to. Global mouse monitors need
@@ -629,6 +786,21 @@ enum SelfTest {
         iso.formatOptions = [.withInternetDateTime]
         func at(_ s: String) -> Date { iso.date(from: s)! }
 
+        print("clampedPanelHeight")
+        // A short list: well under the cap, so it should pass through untouched.
+        let short = clampedPanelHeight(natural: 200, anchorMinY: 800, visibleMinY: 40, margin: 4)
+        check("short: height", String(Int(short.height)), "200")
+        check("short: clamped", String(short.clamped), "false")
+        // A busy day: natural height (1200) exceeds what fits below the menu bar
+        // (800 - 40 - 4 = 756), so it must be capped, not just pushed up.
+        let tall = clampedPanelHeight(natural: 1200, anchorMinY: 800, visibleMinY: 40, margin: 4)
+        check("tall: height", String(Int(tall.height)), "756")
+        check("tall: clamped", String(tall.clamped), "true")
+        // Exactly at the cap: not "over", so not clamped.
+        let exact = clampedPanelHeight(natural: 756, anchorMinY: 800, visibleMinY: 40, margin: 4)
+        check("exact: height", String(Int(exact.height)), "756")
+        check("exact: clamped", String(exact.clamped), "false")
+
         check("before first",  menuText(for: store.status(now: at("2026-08-17T09:26:00-04:00"))),
               "Standup · in 34m")
         check("during first",  menuText(for: store.status(now: at("2026-08-17T10:18:00-04:00"))),
@@ -671,6 +843,30 @@ enum PrintOnce {
             let join = (e.joinUrl?.isEmpty == false) ? "  join:\(e.joinUrl!)" : ""
             print("           \(start)–\(end)  \(e.title)\(join)")
         }
+
+        // Same layout math openPanel() uses, run against the same events, so the height-clamping
+        // fix can be proven from a terminal instead of eyeballed. There is no real status item in
+        // this code path (--print never opens a window), so anchorMinY is approximated as the
+        // visible frame's top edge — on the primary screen with no notch, that is the menu bar's
+        // bottom edge, which is exactly what openPanel() measures from the real status item.
+        let host = NSHostingView(rootView: DayView(
+            events: store.events, now: Date(), lastLoad: store.lastLoad, error: store.lastError,
+            onOpen: { _ in }, onRefresh: {}, onQuit: {}))
+        let natural = host.fittingSize
+        print("panel natural height: \(Int(natural.height))pt")
+        if let screen = NSScreen.main {
+            let visible = screen.visibleFrame
+            let anchorMinY = visible.maxY
+            let maxHeight = max(0, anchorMinY - visible.minY - PANEL_BOTTOM_MARGIN)
+            let (finalHeight, clamped) = clampedPanelHeight(
+                natural: natural.height, anchorMinY: anchorMinY, visibleMinY: visible.minY,
+                margin: PANEL_BOTTOM_MARGIN)
+            print("panel max height:     \(Int(maxHeight))pt (screen \(Int(screen.frame.height))pt tall)")
+            print("panel final height:   \(Int(finalHeight))pt\(clamped ? "  (clamped)" : "")")
+        } else {
+            print("panel max height:     (no NSScreen available in --print)")
+        }
+
         exit(store.lastError == nil ? 0 : 1)
     }
 }

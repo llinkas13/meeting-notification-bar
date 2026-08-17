@@ -1,7 +1,11 @@
 # Google Cloud setup
 
-The only part of installation that needs a browser. Ten minutes, once, and it never repeats — the
-refresh token cached afterwards does not expire on a normal schedule.
+The only part of installation that needs a browser. Ten minutes, once.
+
+Whether it *stays* done depends on your account. On Google Workspace the cached refresh token does
+not expire on a normal schedule, so this is genuinely one-time. On a personal `@gmail.com` account it
+expires after **7 days** and you re-approve weekly. Step 3 covers why and what to do about it — read
+it before you start, because it is the difference between a one-time setup and a recurring chore.
 
 You are creating an OAuth client that belongs to *you* and runs only on this Mac. Nothing is
 published, nothing is reviewed by Google, and no verification is needed, because the app stays in

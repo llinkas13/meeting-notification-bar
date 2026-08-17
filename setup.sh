@@ -28,8 +28,13 @@ for a in "$@"; do
   esac
 done
 
+# WARNINGS is what makes --check usable by a script or an agent. Without it this ran to the end and
+# exited 0 with no credentials, no config and nothing installed, printing "the countdown is at the
+# right end of your menu bar" underneath four warnings. A human skims that and believes it; an agent
+# reads exit 0 and reports success. Anything that degrades the install has to reach the exit code.
+WARNINGS=0
 ok()   { printf '  \033[32mok\033[0m    %s\n' "$*"; }
-warn() { printf '  \033[33mwarn\033[0m  %s\n' "$*"; }
+warn() { printf '  \033[33mwarn\033[0m  %s\n' "$*"; WARNINGS=$((WARNINGS + 1)); }
 die()  { printf '  \033[31mstop\033[0m  %s\n' "$*" >&2; exit 1; }
 step() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
@@ -131,9 +136,27 @@ step "5. Menu bar app"
 # ---------------------------------------------------------------------------
 
 if [ "$CHECK_ONLY" = 1 ]; then
-  pgrep -f "NextMeeting.app/Contents/MacOS/NextMeeting" >/dev/null \
-    && ok "NextMeeting is running (pid $(pgrep -f 'NextMeeting.app/Contents/MacOS/NextMeeting' | head -1))" \
-    || warn "NextMeeting is not running — run: bash menubar/build.sh --install"
+  # pgrep searches every process on the machine, so "is it running" says nothing about whether the
+  # running app has anything to do with *this* checkout. The bundle stamps its origin into its own
+  # refresh shim at build time, so compare that against $REPO. This is the exact confusion that hid
+  # a broken install for 90 minutes: the app was running and healthy-looking while pointed at a
+  # different directory, where its credentials were not.
+  RUNNING_PID="$(pgrep -f 'NextMeeting.app/Contents/MacOS/NextMeeting' | head -1 || true)"
+  SHIM="$HOME/Applications/NextMeeting.app/Contents/Resources/refresh-events.sh"
+  BUILT_FROM=""
+  [ -f "$SHIM" ] && BUILT_FROM="$(sed -n 's/^export MNB_HOME="${MNB_HOME:-\(.*\)}".*/\1/p' "$SHIM" | head -1)"
+
+  if [ -z "$RUNNING_PID" ]; then
+    warn "NextMeeting is not running — run: bash menubar/build.sh --install"
+  elif [ ! -f "$SHIM" ]; then
+    warn "a NextMeeting (pid $RUNNING_PID) is running but there is no app at ~/Applications/NextMeeting.app"
+    warn "  it was started from somewhere else — quit it before installing, or the two will fight"
+  elif [ -n "$BUILT_FROM" ] && [ "$BUILT_FROM" != "$REPO" ]; then
+    warn "NextMeeting is running (pid $RUNNING_PID) but was built from $BUILT_FROM, not this checkout"
+    warn "  so nothing you change here reaches it — rebuild: bash menubar/build.sh --install"
+  else
+    ok "NextMeeting is running (pid $RUNNING_PID)"
+  fi
 else
   bash menubar/build.sh --install
   ok "installed to ~/Applications and set to start at login"
@@ -145,6 +168,17 @@ if [ "$WITH_SYNC" = 1 ]; then
   node bin/sync-drive-docs.js --dry-run || warn "the dry run failed; the schedule is still being installed"
   bash launchd/install-drive-sync.sh 1800
   ok "syncing every 30 minutes into $(node -e 'process.stdout.write(require("./lib/config").load().driveSync.outputDir)')"
+fi
+
+# A run with warnings is not a finished install, and must not read like one.
+if [ "$WARNINGS" -gt 0 ]; then
+  step "Not ready — $WARNINGS thing(s) above need attention"
+  cat >&2 <<'MSG'
+  Work through the warnings in order; the later ones are often just the earlier ones showing up
+  again. If you are an agent, SETUP.md says which of these you can fix yourself and which two you
+  have to hand to your user.
+MSG
+  exit 1
 fi
 
 step "Done"
