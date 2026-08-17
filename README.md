@@ -139,7 +139,11 @@ more useful than an empty one. The cost is that a broken install and a working o
 same thing*. This is the failure mode to understand, because it is the one you will actually hit:
 the 7-day token expiry on a `@gmail.com` account arrives with no bang.
 
-Two places say so plainly:
+Three places say so plainly:
+
+- **The menu bar itself.** A `⚠` is appended to the countdown when the data behind it is more than
+  ten minutes old or the last fetch failed. `Standup · in 34m` is live; `Standup · in 34m ⚠` is a
+  photograph.
 
 - **The dropdown footer.** `Updated 9:41 AM` in grey means that data was fetched at 9:41. If it
   turns orange and reads `Stale · 9:41 AM` or `Fetch failed · 9:41 AM`, the countdown above it is a
@@ -283,7 +287,7 @@ suite reads fixture config on a machine that may have no `config.json` at all.
 
 ```bash
 node --test          # 15 checks, no network, no GUI
-menubar/build/NextMeeting.app/Contents/MacOS/NextMeeting --selftest    # 25 checks, no network, no GUI
+menubar/build/NextMeeting.app/Contents/MacOS/NextMeeting --selftest    # 43 checks, no network, no GUI
 ```
 
 The Node suite covers the pure functions: join-URL precedence, timezone offsets, Drive query quoting,

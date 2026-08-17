@@ -183,10 +183,23 @@ final class EventStore {
     /// waiting for the age to creep up.
     var lastRefreshFailed = false
 
+    /// When the last attempt *started*, and how many have failed in a row. Together these drive the
+    /// retry backoff — see backoffDelay(). Tracking the attempt rather than the last successful
+    /// write is the whole point: on failure the write never happens, so anything keyed off the file
+    /// retries forever at the tick rate.
+    private var lastAttempt: Date?
+    private(set) var consecutiveFailures = 0
+
     /// True when the cache is missing, older than REFRESH_INTERVAL, or holds a different day's
     /// events — the last case is what happens when the Mac sleeps overnight and wakes up still
     /// showing yesterday's schedule.
     var needsRefresh: Bool {
+        // Back off before anything else. tick() asks this once a second, and a failed fetch leaves
+        // the old file in place by design — so without this gate, `age > REFRESH_INTERVAL` stays
+        // true forever and the app spawns a bash+node pair every second for as long as fetching is
+        // broken. See backoffDelay().
+        if !refreshAllowed(now: Date(), lastAttempt: lastAttempt,
+                           consecutiveFailures: consecutiveFailures) { return false }
         guard let age = fileAge else { return true }
         if age > REFRESH_INTERVAL { return true }
         if let first = events.first, let start = first.startDate,
@@ -198,6 +211,9 @@ final class EventStore {
     func refresh(completion: @escaping () -> Void) {
         guard !refreshing, let script = Self.scriptURL else { completion(); return }
         refreshing = true
+        // Stamped before the work, not after: the backoff must count from when we started trying,
+        // otherwise a slow-failing fetch shortens its own retry interval.
+        lastAttempt = Date()
         DispatchQueue.global(qos: .utility).async {
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -220,6 +236,7 @@ final class EventStore {
             DispatchQueue.main.async {
                 self.refreshing = false
                 self.lastRefreshFailed = failed
+                self.consecutiveFailures = failed ? self.consecutiveFailures + 1 : 0
                 self.load()
                 completion()
             }
@@ -301,6 +318,37 @@ func menuText(for status: Status) -> String {
 }
 
 // MARK: - Dropdown
+
+/// The menu bar string, with a marker appended when the data behind it can no longer be trusted.
+/// Free-standing so --selftest can check both branches without a status item.
+func menuBarText(for status: Status, stale: Bool) -> String {
+    menuText(for: status) + (stale ? " ⚠" : "")
+}
+
+/// How long to wait before retrying after `failures` consecutive failed fetches.
+///
+/// Why this exists: `tick()` runs at 1 Hz and asks `needsRefresh` every time. A failed fetch leaves
+/// the previous good JSON in place on purpose, so the file's mtime never advances, so "is it stale?"
+/// stays true forever — and the app spawned a bash+node pair every single second for as long as
+/// fetching stayed broken. That is what a `@gmail.com` account looks like the moment its 7-day
+/// testing-mode token expires: two processes a second, indefinitely, with a log growing 60 lines a
+/// minute, until a human happens to notice the countdown is wrong.
+///
+/// A ladder rather than a flat interval because the most common failure is transient — a fetch
+/// fired on wake before Wi-Fi has associated. Retrying quickly twice recovers from that within
+/// seconds, and anything still failing after that is a real outage worth backing off from.
+func backoffDelay(_ failures: Int) -> TimeInterval {
+    guard failures > 0 else { return 1 }
+    let ladder: [TimeInterval] = [15, 60, REFRESH_INTERVAL]
+    return ladder[min(failures - 1, ladder.count - 1)]
+}
+
+/// Whether another refresh attempt is allowed yet. Pure, so --selftest can pin it against a fixed
+/// clock instead of waiting real seconds for a timer.
+func refreshAllowed(now: Date, lastAttempt: Date?, consecutiveFailures: Int) -> Bool {
+    guard let last = lastAttempt else { return true }
+    return now.timeIntervalSince(last) >= backoffDelay(consecutiveFailures)
+}
 
 /// Returns the clickable meeting URL for an event, or nil when there is nothing to open.
 /// Kept free-standing so --selftest can check it without building a view.
@@ -600,7 +648,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// a second makes the menu bar re-layout and jitter for no reason.
     private func render(force: Bool = false) {
         let status = store.status()
-        let text = menuText(for: status)
+        // A stale countdown is worse than no countdown: it looks authoritative and is wrong. The
+        // dropdown footer explains the situation, but the menu bar is the thing people actually
+        // look at, and without a marker here a frozen clock is indistinguishable from a live one.
+        let stale = store.lastRefreshFailed || (store.fileAge ?? .infinity) > REFRESH_INTERVAL * 2
+        let text = menuBarText(for: status, stale: stale)
         guard force || text != lastRendered else { return }
         lastRendered = text
 
@@ -856,6 +908,57 @@ enum SelfTest {
         check("after last",    menuText(for: store.status(now: at("2026-08-17T18:00:00-04:00"))),
               "No meetings")
 
+        // Freshness footer. This is the regression guard for the bug where a failed fetch was
+        // reported as a successful one: the countdown reads identically in all four cases below, so
+        // the footer is the only thing distinguishing "live" from "frozen". If someone ever wires
+        // this back to a read-time timestamp instead of the file's mtime, "stale" starts saying
+        // "Updated" and these fail.
+        let fixedNow = at("2026-08-17T12:00:00-04:00")
+        func footer(_ stamp: Date?, failed: Bool) -> DayView {
+            DayView(events: [], now: fixedNow, dataStamp: stamp, refreshFailed: failed,
+                    error: nil, onOpen: { _ in }, onRefresh: {}, onQuit: {})
+        }
+        let fresh = fixedNow.addingTimeInterval(-60)                      // a minute old
+        let old   = fixedNow.addingTimeInterval(-REFRESH_INTERVAL * 3)    // well past the cutoff
+        // Prefixes only, never the rendered clock time: clockTime() formats in the machine's local
+        // zone, so asserting "Updated 11:59 AM" would pass here and fail for anyone in another
+        // timezone — a test that only works in Eastern is worse than no test.
+        check("fresh: text",    String(footer(fresh, failed: false).footerText.hasPrefix("Updated ")), "true")
+        check("fresh: stale?",  String(footer(fresh, failed: false).isStale), "false")
+        check("old: stale?",    String(footer(old, failed: false).isStale), "true")
+        check("old: text",      String(footer(old, failed: false).footerText.hasPrefix("Stale · ")), "true")
+        // A failed fetch is called out even when the data on disk is still recent — that is the
+        // exact case that used to read "Updated" and look healthy.
+        check("failed: text",   String(footer(fresh, failed: true).footerText.hasPrefix("Fetch failed · ")), "true")
+        check("no file",        footer(nil, failed: false).footerText, "No data yet")
+        check("no file: stale?", String(footer(nil, failed: false).isStale), "true")
+
+        // Retry backoff. The regression this guards: tick() runs at 1 Hz and a failed fetch never
+        // updates the file, so without a gate keyed to the last *attempt* the app spawns a
+        // bash+node pair every second for as long as fetching is broken.
+        // The menu bar marker. Same status, same countdown — the only difference is trustworthiness.
+        let sample = store.status(now: at("2026-08-17T09:26:00-04:00"))
+        check("menu bar fresh", menuBarText(for: sample, stale: false), "Standup · in 34m")
+        check("menu bar stale", menuBarText(for: sample, stale: true),  "Standup · in 34m ⚠")
+
+        check("backoff 0",  String(Int(backoffDelay(0))), "1")
+        check("backoff 1",  String(Int(backoffDelay(1))), "15")
+        check("backoff 2",  String(Int(backoffDelay(2))), "60")
+        check("backoff 3",  String(Int(backoffDelay(3))), "300")
+        check("backoff 99", String(Int(backoffDelay(99))), "300")   // ladder tops out, never grows
+        check("first attempt allowed",
+              String(refreshAllowed(now: fixedNow, lastAttempt: nil, consecutiveFailures: 0)), "true")
+        // One second after a failure: this is the exact case that used to spawn a process.
+        check("1s after failure blocked",
+              String(refreshAllowed(now: fixedNow, lastAttempt: fixedNow.addingTimeInterval(-1),
+                                    consecutiveFailures: 1)), "false")
+        check("16s after failure allowed",
+              String(refreshAllowed(now: fixedNow, lastAttempt: fixedNow.addingTimeInterval(-16),
+                                    consecutiveFailures: 1)), "true")
+        check("2m into an outage blocked",
+              String(refreshAllowed(now: fixedNow, lastAttempt: fixedNow.addingTimeInterval(-120),
+                                    consecutiveFailures: 5)), "false")
+
         print(failures == 0 ? "\nall passed" : "\n\(failures) failed")
         exit(failures == 0 ? 0 : 1)
     }
@@ -872,7 +975,11 @@ enum PrintOnce {
         if store.needsRefresh { store.refreshSync() }
 
         let status = store.status()
-        print("menu bar:  \(menuText(for: status))")
+        // Through menuBarText, not menuText, so this line is character-for-character what the menu
+        // bar is drawing — including the stale marker. A diagnostic that quietly renders a cleaner
+        // string than the real UI is worse than no diagnostic.
+        let staleNow = store.lastRefreshFailed || (store.fileAge ?? .infinity) > REFRESH_INTERVAL * 2
+        print("menu bar:  \(menuBarText(for: status, stale: staleNow))")
         print("source:    \(EventStore.jsonURL.path)")
         if let age = store.fileAge {
             print("file age:  \(Int(age))s")

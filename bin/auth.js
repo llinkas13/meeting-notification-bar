@@ -59,8 +59,11 @@ async function main() {
 
   if (argv.includes('--check')) return void await check();
 
-  say('usage: node bin/auth.js [--login | --check | --logout]');
-  process.exit(2);
+  // Asking for help is not an error, so --help exits 0; an unrecognised flag exits 2. The other two
+  // entry points follow the same rule, and a coworker's agent probes with --help before anything.
+  const usage = 'usage: node bin/auth.js [--login | --check | --logout]';
+  say(usage);
+  process.exit(argv.includes('--help') || argv.includes('-h') ? 0 : 2);
 }
 
 main().catch(err => { say(`FAILED: ${err.message}`); process.exit(1); });
