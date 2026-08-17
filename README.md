@@ -94,7 +94,7 @@ console plus a table of what each failure message actually means.
 
 | Key | Default | Notes |
 |---|---|---|
-| `calendarId` | `primary` | Or a calendar's address, for a shared calendar. |
+| `calendarId` | `primary` | Or a calendar's address, for a shared calendar. No second consent needed — your existing token covers any calendar your Google account can already read. |
 | `driveSync.titleContains` | `Notes by Gemini` | Drive title substring to mirror. |
 | `driveSync.outputDir` | `~/Documents/meeting-notes` | Where the markdown lands. |
 | `driveSync.lookbackDays` | `30` | How far back the first run looks; a saved cursor takes over after. |
@@ -126,10 +126,39 @@ window is hiding the menu bar entirely:
 menu bar:  ▶ ORGZ: Daily Standup · 19m left
 source:    /Users/you/Library/Application Support/meeting-notification-bar/events.json
 file age:  5s
+freshness: Updated 9:41 AM
 events:    2 total, 2 timed
            10:00 AM–10:30 AM  ORGZ: Daily Standup  join:https://meet.google.com/…
            3:30 PM–4:30 PM   Monorepo Consolidation
 ```
+
+### Telling "working" from "frozen"
+
+When a fetch fails, the app keeps the last good data rather than blanking — a stale countdown is
+more useful than an empty one. The cost is that a broken install and a working one draw *exactly the
+same thing*. This is the failure mode to understand, because it is the one you will actually hit:
+the 7-day token expiry on a `@gmail.com` account arrives with no bang.
+
+Two places say so plainly:
+
+- **The dropdown footer.** `Updated 9:41 AM` in grey means that data was fetched at 9:41. If it
+  turns orange and reads `Stale · 9:41 AM` or `Fetch failed · 9:41 AM`, the countdown above it is a
+  museum piece. The timestamp comes from the events file's modification time, so it cannot advance
+  unless a fetch genuinely succeeded — clicking Refresh on a broken install will not move it.
+- **`--print`'s `freshness:` line**, which says the same thing from a terminal and appends
+  `<-- STALE: the fetch is failing; see menubar.log` when it applies.
+
+If it is stale, `tail -20 ~/Library/Logs/meeting-notification-bar/menubar.log` names the reason.
+`not authorized yet` means re-run `node bin/auth.js --login`. Check the `*.launchd.log` files in the
+same directory too — they catch failures that happen before the script's own logging starts, which
+is what an empty `menubar.log` actually means.
+
+**If you moved or renamed the folder you cloned into**, expect `not authorized yet` even though your
+token is right there. The bundle stamps the checkout's absolute path in at build time, so it is now
+looking somewhere that no longer exists. Confirm with
+`cat ~/Applications/NextMeeting.app/Contents/Resources/refresh-events.sh` and rebuild from the new
+location. `setup.sh --check` compares that stamped path against the checkout you are standing in and
+warns when they disagree.
 
 Drive sync, by hand:
 
