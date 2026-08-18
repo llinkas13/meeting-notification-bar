@@ -27,7 +27,7 @@ Every host the code reaches: `googleapis.com`, `oauth2.googleapis.com`, `account
 - Command Line Tools (`xcode-select --install`)
 - A Google account
 
-## Install
+## Install (~15 min)
 
 ```bash
 git clone https://github.com/llinkas13/meeting-notification-bar.git
@@ -37,7 +37,7 @@ cd meeting-notification-bar
 mkdir -p .secrets
 mv ~/Downloads/client_secret_*.json .secrets/oauth-client.json
 
-# 2. Everything else
+# 2. Everything else — ~5 min (build + consent)
 bash setup.sh                 # menu bar only
 bash setup.sh --with-sync     # menu bar + Drive sync every 30 min
 bash setup.sh --check         # verify an existing install
