@@ -1,13 +1,27 @@
 # meeting-notification-bar
 
+## What it is: 
+
 1. Menu bar countdown to your next meeting — the core feature
 2. Google Docs → local markdown sync (one-way) — optional, off by default
-Both run entirely on your Mac, sharing one Google login. The menu bar works standalone; sync is an add-on, not a requirement.
+
+The menu bar works standalone; sync is an add-on, not a requirement.
+
+## How to use: 
+- Click to open/close the dropdown. 
+- Click a meeting to open its call.
+
+Both run entirely on your Mac, sharing one Google login.
 
 ![Menu bar dropdown showing today's meetings](meeting-bar-screenshot.png)
 
-Click to open/close the dropdown. 
-Click a meeting to open its call.
+
+## Requirements
+
+- macOS 13+
+- Node 18+ — no dependencies, no `npm install`
+- Command Line Tools (`xcode-select --install`)
+- A Google account
 
 ## No model, no cloud
 
@@ -20,12 +34,6 @@ launchctl list | grep meeting-notification-bar
 
 Every host the code reaches: `googleapis.com`, `oauth2.googleapis.com`, `accounts.google.com` (consent), `127.0.0.1` (redirect listener). Nothing else.
 
-## Requirements
-
-- macOS 13+
-- Node 18+ — no dependencies, no `npm install`
-- Command Line Tools (`xcode-select --install`)
-- A Google account
 
 ## Install (~15 min)
 
