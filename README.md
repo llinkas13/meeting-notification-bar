@@ -15,6 +15,15 @@ Both run entirely on your Mac, sharing one Google login.
 
 ![Menu bar dropdown showing today's meetings](meeting-bar-screenshot.png)
 
+## Daily use
+
+Nothing — it starts at login and refreshes itself. When something looks wrong:
+
+```bash
+node bin/auth.js --check                                          # is Google answering?
+~/Applications/NextMeeting.app/Contents/MacOS/NextMeeting --print   # what the menu bar thinks
+tail -20 ~/Library/Logs/meeting-notification-bar/menubar.log
+```
 
 ## Requirements
 
@@ -71,15 +80,18 @@ Safe to re-run. Never overwrites `config.json` or re-asks for consent.
 
 Timezone is never a config key — it always follows the Mac (`$TZ`, else system zone), so it can't drift from the laptop. `bin/auth.js --check` prints the zone in use.
 
-## Daily use
-
-Nothing — it starts at login and refreshes itself. When something looks wrong:
+### Drive sync, by hand
 
 ```bash
-node bin/auth.js --check                                          # is Google answering?
-~/Applications/NextMeeting.app/Contents/MacOS/NextMeeting --print   # what the menu bar thinks
-tail -20 ~/Library/Logs/meeting-notification-bar/menubar.log
+node bin/sync-drive-docs.js --dry-run
+node bin/sync-drive-docs.js
+node bin/sync-drive-docs.js --since 2026-07-01T00:00:00Z
+node bin/sync-drive-docs.js --reset     # forget the cursor, re-scan everything
 ```
+
+Never overwrites an existing file without `--force`. Read-only Drive scope, so it can't write back even by mistake.
+
+
 
 ## Repo layout
 
@@ -116,16 +128,6 @@ Data lives outside the repo:
 ~/Library/Logs/meeting-notification-bar/                   menubar.log, drive-sync.log, *.launchd.log
 ```
 
-### Drive sync, by hand
-
-```bash
-node bin/sync-drive-docs.js --dry-run
-node bin/sync-drive-docs.js
-node bin/sync-drive-docs.js --since 2026-07-01T00:00:00Z
-node bin/sync-drive-docs.js --reset     # forget the cursor, re-scan everything
-```
-
-Never overwrites an existing file without `--force`. Read-only Drive scope, so it can't write back even by mistake.
 
 ### Stale vs. broken
 
