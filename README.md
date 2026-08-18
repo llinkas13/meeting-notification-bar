@@ -1,5 +1,7 @@
 # meeting-notification-bar
 
+What it is: 
+
 1. Menu bar countdown to your next meeting
 2. Google Docs → local markdown sync (one-way)
 
