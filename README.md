@@ -3,7 +3,7 @@
 ## What it is: 
 
 1. Menu bar countdown to your next meeting — the core feature
-2. Google Docs → local markdown sync (one-way) — optional, off by default
+2. (optional) Google Docs → local markdown sync (one-way)
 
 The menu bar works standalone; sync is an add-on, not a requirement.
 
