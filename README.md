@@ -3,10 +3,11 @@
 1. Menu bar countdown to your next meeting
 2. Google Docs → local markdown sync (one-way)
 
-Both run entirely on your Mac, sharing one Google login.
 How to use: 
 - Click to open/close the dropdown. 
 - Click a meeting to open its call.
+
+Both run entirely on your Mac, sharing one Google login.
 
 ![Menu bar dropdown showing today's meetings](meeting-bar-screenshot.png)
 
