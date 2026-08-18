@@ -1,8 +1,8 @@
 # meeting-notification-bar
 
-1. Menu bar countdown to your next meeting
-2. Google Docs → local markdown sync (one-way)
-Both run entirely on your Mac, sharing one Google login.
+1. Menu bar countdown to your next meeting — the core feature
+2. Google Docs → local markdown sync (one-way) — optional, off by default
+Both run entirely on your Mac, sharing one Google login. The menu bar works standalone; sync is an add-on, not a requirement.
 
 ![Menu bar dropdown showing today's meetings](meeting-bar-screenshot.png)
 
@@ -38,10 +38,12 @@ mkdir -p .secrets
 mv ~/Downloads/client_secret_*.json .secrets/oauth-client.json
 
 # 2. Everything else — ~5 min (build + consent)
-bash setup.sh                 # menu bar only
-bash setup.sh --with-sync     # menu bar + Drive sync every 30 min
+bash setup.sh                 # menu bar only — this is all most people need
+bash setup.sh --with-sync     # menu bar + Drive sync every 30 min (optional add-on)
 bash setup.sh --check         # verify an existing install
 ```
+
+Drive sync is never installed unless you pass `--with-sync`. It shares the OAuth consent but runs as its own LaunchAgent — the menu bar has no dependency on it.
 
 Safe to re-run. Never overwrites `config.json` or re-asks for consent.
 
