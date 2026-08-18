@@ -1,66 +1,31 @@
 # meeting-notification-bar
 
-Two things, sharing one Google login, both running entirely on your Mac:
+1. Menu bar countdown to your next meeting
+2. Google Docs → local markdown sync (one-way)
+Both run entirely on your Mac, sharing one Google login.
 
-**A menu bar countdown to your next meeting.**
+![Menu bar dropdown showing today's meetings](meeting-bar-screenshot.png)
 
-```
-Standup · in 34m          upcoming (turns orange under 5 minutes)
-▶ Standup · 12m left      in progress
-No meetings               nothing left today
-```
+Click to open/close the dropdown. 
+Click a meeting to open its call.
 
-Click it for the rest of the day. Clicking a meeting opens its video call and closes the dropdown —
-the whole row is the target, and rows with no call attached stay inert and show no hover highlight,
-so the row tells you whether there is anything to open before you click.
+## No model, no cloud
 
-**A one-way sync of Google Docs into local markdown files.** By default it mirrors Docs whose title
-contains `Notes by Gemini` — Google's auto-generated meeting notes — into a folder you pick, one
-`.md` file per Doc with frontmatter pointing back at the original. Point it at any folder: a plain
-`~/Documents`, an Obsidian vault, a git repo. It writes files and knows nothing about what reads them.
-
-## Nothing here runs on Claude, or on any model
-
-Worth stating plainly, since that is the question this repo was extracted to answer.
-
-The whole chain is `node` → Google's REST API → a JSON file → a Swift app reading that file. There is
-no `claude` CLI call, no MCP server, no API key for any model provider, no inference of any kind, and
-no hook or loop that could invoke one. The only outbound network requests are to `googleapis.com` and
-`oauth2.googleapis.com`. All the arithmetic — countdowns, which meeting is current, day windows — is
-local Swift and local JavaScript.
-
-Nothing runs on a schedule you did not install, and the two things that can run on a schedule are
-both `launchd` LaunchAgents you can list and remove:
-
-```bash
-launchctl list | grep meeting-notification-bar
-```
-
-Verify it rather than trust it:
+Verify it yourself:
 
 ```bash
 grep -rin 'claude\|anthropic\|openai\|mcp' --include='*.js' --include='*.swift' --include='*.sh' .
+launchctl list | grep meeting-notification-bar
 ```
 
-The only hit is a comment in `bin/fetch-events.js` saying there is none.
-
-Every host the code can reach is a literal in `lib/`: `oauth2.googleapis.com` and
-`www.googleapis.com` (as `TOKEN_HOST` / `API_HOST`), plus `accounts.google.com` for the consent page
-your browser opens and `127.0.0.1` for the loopback listener that catches the redirect. There is no
-other `https.request` in the repo. (`build.sh` contains an `apple.com` URL — it is the DTD identifier
-inside a plist, which is never fetched.)
-
-"Gemini" does appear in the code, as the default Drive **title** to search for — `Notes by Gemini` is
-what Google names the Docs it generates. This repo reads those Docs as files. It does not call Gemini,
-and could not: the scope is `drive.readonly`.
+Every host the code reaches: `googleapis.com`, `oauth2.googleapis.com`, `accounts.google.com` (consent), `127.0.0.1` (redirect listener). Nothing else.
 
 ## Requirements
 
-- macOS 13 or newer.
-- Node 18+. No `npm install` — **this repo has no dependencies**, no `package.json`, and no
-  `node_modules`. Everything uses the Node standard library.
-- Command Line Tools for `swiftc`: `xcode-select --install`. Full Xcode is not needed.
-- A Google account, and ten minutes in the Cloud console once.
+- macOS 13+
+- Node 18+ — no dependencies, no `npm install`
+- Command Line Tools (`xcode-select --install`)
+- A Google account
 
 ## Install
 
@@ -68,99 +33,89 @@ and could not: the scope is `drive.readonly`.
 git clone https://github.com/llinkas13/meeting-notification-bar.git
 cd meeting-notification-bar
 
-# 1. Make your OWN Google Cloud OAuth client first — docs/google-cloud-setup.md, ~10 min of
-#    clicking. You create it under your own Google account; nobody can hand you one. Only after
-#    you have downloaded its JSON will the two lines below have anything to move.
+# 1. Make your own OAuth client — docs/google-cloud-setup.md, ~10 min
 mkdir -p .secrets
 mv ~/Downloads/client_secret_*.json .secrets/oauth-client.json
 
-# 2. everything else
+# 2. Everything else
 bash setup.sh                 # menu bar only
-bash setup.sh --with-sync     # menu bar + Drive sync every 30 minutes
+bash setup.sh --with-sync     # menu bar + Drive sync every 30 min
+bash setup.sh --check         # verify an existing install
 ```
 
-`setup.sh` checks the toolchain, creates `config.json`, runs the OAuth consent, fetches events once,
-builds the app, and installs the login agent. It is safe to re-run — it never overwrites
-`config.json` and never re-asks for consent it already has. `bash setup.sh --check` verifies an
-existing install and changes nothing.
+Safe to re-run. Never overwrites `config.json` or re-asks for consent.
 
-If `.secrets/oauth-client.json` is missing, setup stops and points at
-[docs/google-cloud-setup.md](docs/google-cloud-setup.md). That document is the six steps in the Cloud
-console plus a table of what each failure message actually means.
+## Repo layout
+
+```
+meeting-notification-bar/
+├── bin/                       entry-point scripts
+│   ├── auth.js                --login / --check / --logout
+│   ├── fetch-events.js        today's events → JSON on stdout
+│   └── sync-drive-docs.js     Docs → outputDir/*.md, with cursor + seen-list
+├── lib/                       pure logic, no side effects at import
+│   ├── google-auth.js         OAuth loopback consent, token refresh
+│   ├── calendar.js            events.list + joinable URL extraction
+│   ├── drive.js                files.list across drives, Doc → markdown export
+│   ├── config.js              defaults, timezone resolution
+│   └── paths.js               shared file locations
+├── menubar/                   the Swift menu bar app
+│   ├── NextMeeting.swift       NSStatusItem + SwiftUI panel
+│   ├── refresh-events.sh       runs the fetcher, writes JSON atomically
+│   └── build.sh                swiftc → .app bundle, no Xcode project
+├── launchd/                   Drive-sync LaunchAgent installer
+├── docs/
+│   └── google-cloud-setup.md   OAuth client setup, 6 steps
+├── test/                      node --test fixtures + specs
+├── config.example.json        copy to config.json
+├── setup.sh                   installer
+├── uninstall.sh               remove app + agents (--purge for cache/logs/token)
+└── README.md
+```
+
+Data lives outside the repo:
+
+```
+~/Library/Application Support/meeting-notification-bar/   events.json, drive-sync-state.json
+~/Library/Logs/meeting-notification-bar/                   menubar.log, drive-sync.log, *.launchd.log
+```
 
 ## Configuration
 
-`config.json`, copied from `config.example.json`. Every key is optional.
+`config.json`, copied from `config.example.json`. Every key optional.
 
 | Key | Default | Notes |
 |---|---|---|
-| `calendarId` | `primary` | Or a calendar's address, for a shared calendar. No second consent needed — your existing token covers any calendar your Google account can already read. |
+| `calendarId` | `primary` | Or any calendar your account can read — no second consent. |
 | `driveSync.titleContains` | `Notes by Gemini` | Drive title substring to mirror. |
-| `driveSync.outputDir` | `~/Documents/meeting-notes` | Where the markdown lands. |
-| `driveSync.lookbackDays` | `30` | How far back the first run looks; a saved cursor takes over after. |
-| `driveSync.maxPerRun` | `60` | Ceiling on Docs exported per run, so a first sync of a large Drive cannot run away. |
-| `driveSync.exclude` | *(none)* | Case-insensitive regex on the title, e.g. `orientation|1:1|HR`. |
+| `driveSync.outputDir` | `~/Documents/meeting-notes` | Where markdown lands. |
+| `driveSync.lookbackDays` | `30` | First-run window; a saved cursor takes over after. |
+| `driveSync.maxPerRun` | `60` | Cap per run. |
+| `driveSync.exclude` | none | Case-insensitive regex on title, e.g. `orientation\|1:1\|HR`. |
 
-**The timezone always follows the Mac — there is no config key for it.** `lib/config.js` resolves
-`$TZ`, falling back to whatever `Intl` reports as the system zone, and the fallback always works on
-macOS. This is deliberate, not a missing feature: a timezone pinned in config.json can silently drift
-from the laptop's actual zone, which is exactly the wrong-day bug this used to warn about. Both the
-day's date and the UTC offset for the day window are computed from this same resolved zone, so they
-can never disagree. `bin/auth.js --check` prints the zone actually in use.
+Timezone is never a config key — it always follows the Mac (`$TZ`, else system zone), so it can't drift from the laptop. `bin/auth.js --check` prints the zone in use.
 
 ## Daily use
 
-Nothing. It starts at login and refreshes itself. When something looks wrong:
+Nothing — it starts at login and refreshes itself. When something looks wrong:
 
 ```bash
-node bin/auth.js --check                    # is Google answering? prints no secrets
+node bin/auth.js --check                                          # is Google answering?
 ~/Applications/NextMeeting.app/Contents/MacOS/NextMeeting --print   # what the menu bar thinks
 tail -20 ~/Library/Logs/meeting-notification-bar/menubar.log
 ```
 
-`--print` is the one to reach for, because it separates "the data is wrong" from "the drawing is
-wrong" — and unlike the menu bar it can be read from a terminal, which matters when a fullscreen
-window is hiding the menu bar entirely:
+### Stale vs. broken
 
-```
-menu bar:  ▶ ORGZ: Daily Standup · 19m left
-source:    /Users/you/Library/Application Support/meeting-notification-bar/events.json
-file age:  5s
-freshness: Updated 9:41 AM
-events:    2 total, 2 timed
-           10:00 AM–10:30 AM  ORGZ: Daily Standup  join:https://meet.google.com/…
-           3:30 PM–4:30 PM   Monorepo Consolidation
-```
+A failed fetch keeps the last good data instead of blanking — so a broken install and a working one can draw the same thing. Three tells:
 
-### Telling "working" from "frozen"
+- Menu bar: `⚠` appended when data is >10 min old or the last fetch failed.
+- Dropdown footer: `Updated 9:41 AM` (grey, fine) vs. `Stale · 9:41 AM` / `Fetch failed · 9:41 AM` (orange).
+- `--print`'s `freshness:` line, with a `STALE` note when it applies.
 
-When a fetch fails, the app keeps the last good data rather than blanking — a stale countdown is
-more useful than an empty one. The cost is that a broken install and a working one draw *exactly the
-same thing*. This is the failure mode to understand, because it is the one you will actually hit:
-the 7-day token expiry on a `@gmail.com` account arrives with no bang.
+`not authorized yet` in the log → `node bin/auth.js --login`. Check `*.launchd.log` too — it catches failures before the script's own logging starts.
 
-Three places say so plainly:
-
-- **The menu bar itself.** A `⚠` is appended to the countdown when the data behind it is more than
-  ten minutes old or the last fetch failed. `Standup · in 34m` is live; `Standup · in 34m ⚠` is a
-  photograph.
-
-- **The dropdown footer.** `Updated 9:41 AM` in grey means that data was fetched at 9:41. If it
-  turns orange and reads `Stale · 9:41 AM` or `Fetch failed · 9:41 AM`, the countdown above it is a
-  museum piece. The timestamp comes from the events file's modification time, so it cannot advance
-  unless a fetch genuinely succeeded — clicking Refresh on a broken install will not move it.
-- **`--print`'s `freshness:` line**, which says the same thing from a terminal and appends
-  `<-- STALE: the fetch is failing; see menubar.log` when it applies.
-
-If it is stale, `tail -20 ~/Library/Logs/meeting-notification-bar/menubar.log` names the reason.
-`not authorized yet` means re-run `node bin/auth.js --login`. Check the `*.launchd.log` files in the
-same directory too — they catch failures that happen before the script's own logging starts, which
-is what an empty `menubar.log` actually means.
-
-**Read the log's rate, not just its contents.** A broken fetch retries on a backoff ladder — 15s,
-then 60s, then every 5 minutes — so a sustained outage should write roughly one `FAIL` line every
-five minutes, and a handful in the first minute. Much faster than that means the *backoff* is
-broken, not the fetch:
+Retries back off on a ladder (15s, 60s, then every 5 min). Roughly one `FAIL` line per 5 min during an outage is healthy; much faster means the backoff itself is broken:
 
 ```bash
 L=~/Library/Logs/meeting-notification-bar/menubar.log
@@ -168,183 +123,64 @@ grep -c FAIL "$L"
 grep -E '^[0-9]{4}-' "$L" | awk '{print substr($2,1,5)}' | uniq -c | tail
 ```
 
-The second command counts lines per minute. Anything in the tens is the bug this ladder was added
-to kill: the app once re-ran the fetch script every second for as long as fetching stayed broken,
-because a failed fetch never updates the file it was checking the age of. 714 failures in one
-afternoon, and nothing about any individual line looked wrong — only the rate did.
+Moved or renamed the checkout? Expect `not authorized yet` — the bundle stamps the absolute path in at build time. Rebuild from the new location; `setup.sh --check` flags the mismatch.
 
-The `grep -E '^[0-9]{4}-'` is not decoration. Two line shapes share this log: the script's own,
-which start with a date, and node's `[fetch-events] FAILED:`, which do not. During an outage they
-interleave, and since `uniq` only collapses *adjacent* duplicates, counting without the filter
-returns a column of `1`s — it goes blind in exactly the situation it exists to detect. Healthy data
-cannot show you this, because successes are one timestamped line each with nothing interleaved:
-both versions agree perfectly right up until the moment one of them matters.
-
-Which is the rule for anything else added to this section: **test a diagnostic against the broken
-data, not the working data.** A check that passes on a healthy system has demonstrated nothing.
-
-**If you moved or renamed the folder you cloned into**, expect `not authorized yet` even though your
-token is right there. The bundle stamps the checkout's absolute path in at build time, so it is now
-looking somewhere that no longer exists. Confirm with
-`cat ~/Applications/NextMeeting.app/Contents/Resources/refresh-events.sh` and rebuild from the new
-location. `setup.sh --check` compares that stamped path against the checkout you are standing in and
-warns when they disagree.
-
-Drive sync, by hand:
+### Drive sync, by hand
 
 ```bash
-node bin/sync-drive-docs.js --dry-run       # list what would be pulled, write nothing
+node bin/sync-drive-docs.js --dry-run
 node bin/sync-drive-docs.js
 node bin/sync-drive-docs.js --since 2026-07-01T00:00:00Z
-node bin/sync-drive-docs.js --reset         # forget the cursor, re-examine everything
+node bin/sync-drive-docs.js --reset     # forget the cursor, re-scan everything
 ```
 
-The sync **never overwrites an existing file** without `--force`. These are notes; you will edit
-them, and a scheduled job that silently reverts your edits is worse than no sync at all. It is also
-one-way by construction — the OAuth scope is `drive.readonly`, so it cannot write to Drive even by
-mistake.
+Never overwrites an existing file without `--force`. Read-only Drive scope, so it can't write back even by mistake.
 
-## How it fits together
+### Overrides
 
-| Piece | Job |
-|---|---|
-| `lib/google-auth.js` | OAuth loopback consent, token refresh, retry/backoff. No SDK. |
-| `lib/calendar.js` | One `events.list` call; extracts a joinable URL. |
-| `lib/drive.js` | `files.list` across all drives, paginated; Doc → markdown export. |
-| `lib/config.js` | Defaults, and the timezone resolution above. |
-| `bin/auth.js` | `--login` / `--check` / `--logout`. |
-| `bin/fetch-events.js` | Today's events as JSON on stdout. The only thing on the menu bar path that touches the network. |
-| `bin/sync-drive-docs.js` | Docs → `outputDir/*.md`, with a cursor and a seen list. |
-| `menubar/NextMeeting.swift` | `NSStatusItem` + a hand-positioned SwiftUI panel. Reads JSON, never talks to Google. |
-| `menubar/refresh-events.sh` | Runs the fetcher, writes the JSON atomically. |
-| `menubar/build.sh` | `swiftc` → `.app` bundle. No Xcode project. |
-| `launchd/` | The **drive-sync** LaunchAgent installer and its PATH wrapper. The menu bar's LaunchAgent is written by `menubar/build.sh --install`, not from here. |
+- `$MNB_EVENTS_FILE` — events.json location. Set for both the app and `refresh-events.sh`, or they'll disagree.
+- `$MNB_HOME` — points the Node side at a different checkout (stamped into the bundle by `build.sh`).
+- `$MNB_CONFIG` — points at a different `config.json` (used by the test suite).
 
-Files, and why they live where they do:
-
-```
-<repo>/.secrets/                                        oauth-client.json, token.json (0600, gitignored)
-<repo>/config.json                                      yours, gitignored
-~/Library/Application Support/meeting-notification-bar/ events.json, drive-sync-state.json
-~/Library/Logs/meeting-notification-bar/                menubar.log, drive-sync.log
-                                                        …and *.launchd.log — launchd's own stderr,
-                                                        which catches failures that happen before
-                                                        the scripts' logging starts. Check these
-                                                        when a log looks suspiciously empty.
-```
-
-Data and logs are kept apart on purpose, so `rm -rf` on the log directory cannot cost you the sync
-cursor.
-
-`events.json`'s path can be overridden with `$MNB_EVENTS_FILE` — set it before running the menu bar
-app *and* before running `menubar/refresh-events.sh` (or export it for both, e.g. in the LaunchAgent
-plist), since the app reads whatever path it resolves to and the script writes whatever path it
-resolves to; if only one side sees the variable they end up pointing at two different files. This is
-what lets a fixture drive the display for testing, or another system write the JSON without forking
-the app. `lib/paths.js`'s `EVENTS_FILE` honours the same variable, for anything on the Node side that
-needs to agree on the location (`bin/fetch-events.js` itself does not — it only ever writes to
-stdout).
-
-The other two overrides, for completeness: `$MNB_HOME` points the Node side at a different checkout
-(`build.sh` stamps it into the bundle, since a GUI app cannot find the checkout by walking up from
-inside its own `.app`), and `$MNB_CONFIG` points at a different `config.json` — which is how the test
-suite reads fixture config on a machine that may have no `config.json` at all.
-
-## Things that will bite you if you edit this
-
-1. **A GUI app cannot find `node`.** Launched from Finder or a LaunchAgent it inherits a minimal
-   `PATH` with no mise/nvm/asdf shims. `menubar/refresh-events.sh` rebuilds a usable one. That is the
-   entire reason the app shells out to a script instead of running `node` itself.
-2. **The bundled script is a shim, not a copy.** It cannot find the checkout by walking up from
-   `Contents/Resources` — two levels up is the bundle, not the repo. `build.sh` stamps the absolute
-   path in as `MNB_HOME`. A side benefit: editing `refresh-events.sh` takes effect without rebuilding.
-3. **Don't re-fetch in the 1-second timer.** The timer recomputes the *string*; events refresh at most
-   every `REFRESH_INTERVAL` (300s), plus on wake from sleep. Fetching every second would be 3600 API
-   calls an hour for data that changes twice a day.
-4. **Keep the monospaced-digit font.** With the proportional system font the menu bar visibly reflows
-   every time a digit changes width, which reads as a bug.
-5. **The dropdown is a panel, not an `NSPopover`, and it will not dismiss itself.** A popover leaves a
-   visible gap under the menu bar — it reserves room for its callout arrow, and no public API turns
-   that off — so it is a borderless `NSPanel` positioned by hand. Two consequences: `canBecomeKey`
-   must be overridden or the buttons inside go dead, and the global mouse monitor that closes it has
-   to *skip* clicks on the status item, or it closes the panel and the button's own action immediately
-   reopens it, and the menu bar item looks broken.
-6. **`conferenceDataVersion=1` is not the fix for a missing join link.** It is a write-path parameter
-   governing insert/update/patch; `events.list` ignores it. Verified against the live API — the
-   response is byte-identical with and without it. An event with no `entryPoints` genuinely has no
-   conferencing attached.
-7. **Esc only works because the app activates itself.** The key monitor is a *local*
-   `NSEvent.addLocalMonitorForEvents`, which only sees events delivered to this app — and an
-   `.accessory` app is never active on its own, so without `NSApp.activate(ignoringOtherApps:)` in
-   `openPanel()` the monitor is installed but can never fire. `closePanel()` calls
-   `NSApp.deactivate()` on the way out, since nothing else returns focus to whatever app the user was
-   in before. Activation is asynchronous and can itself surface a resign-active notification in the
-   same beat (see point 8); `openPanel()` sets a short grace window (`suppressResignUntil`) so that
-   doesn't slam the panel shut the instant it opens.
-8. **The panel closes itself on more than a stray click now.** `didResignActiveNotification` and
-   `NSWorkspace.activeSpaceDidChangeNotification` both call `closePanel()`, so a keyboard-only
-   cmd-tab or a Space change no longer leaves a frozen panel floating over the wrong app on every
-   Space — a transient `NSPopover` used to get this for free. If you add a new way to leave the app
-   (another notification, a global monitor), route it through `closePanel()` too rather than
-   inventing a second dismissal path.
-9. **`closePanel()` defers releasing the content view.** It can be called synchronously from inside
-   the SwiftUI row's own `onOpen` action, while AppKit is still dispatching that mouse-up through the
-   `NSHostingView` being torn down — nil-ing `panel.contentView` immediately would be a
-   use-after-free risk. The teardown happens on the next run-loop turn instead, guarded by a
-   generation counter (`panelGeneration`) so a fast close-then-reopen doesn't wipe out the *new*
-   content view when the deferred block finally runs.
-10. **The Mac's timezone can change without a sleep.** `NSSystemTimeZoneDidChange` triggers the same
-    refresh-and-re-render path as wake-from-sleep, and also calls `NSTimeZone.resetSystemTimeZone()`
-    first — Foundation caches the system zone, and `Calendar.current` / the implicit-zone
-    `DateFormatter`s in this file (`clockTime`, `needsRefresh`) would otherwise keep answering with
-    the old zone. Nothing here stores a `Calendar` or `DateFormatter` across calls, so that reset is
-    the only stale-cache concern.
-11. **The dropdown's height is clamped, and the rows scroll, on purpose.** `openPanel()` used to hand
-    `host.fittingSize` straight to the panel; on a busy day (roughly a dozen-plus meetings) that grows
-    past the top of the screen, and because the panel draws at `.popUpMenu` level it then covers the
-    *earliest* meetings with the menu bar instead of just running off the bottom. `clampedPanelHeight`
-    (pure, tested in `--selftest` since `--print` has no window to measure a real screen from) caps
-    the height to what actually fits below the menu bar; `DayView`'s `ScrollView` around the rows
-    (`.frame(maxHeight: .infinity)`) is what lets the *rows* absorb that squeeze while "Today", the
-    divider, and the Refresh/Quit footer keep their natural size and stay reachable. If you remove the
-    `ScrollView`, the panel goes back to hiding the day's first meetings on a busy calendar.
 
 ## Tests
 
 ```bash
-node --test          # 15 checks, no network, no GUI
-menubar/build/NextMeeting.app/Contents/MacOS/NextMeeting --selftest    # 43 checks, no network, no GUI
+node --test                                                          # 15 checks, no network/GUI
+menubar/build/NextMeeting.app/Contents/MacOS/NextMeeting --selftest    # 43 checks, no network/GUI
 ```
 
-The Node suite covers the pure functions: join-URL precedence, timezone offsets, Drive query quoting,
-filename generation and collision handling, and config defaults. The Swift `--selftest` covers
-duration and title formatting, decoding a JSON file written before `joinUrl` existed, all-day events
-excluded from the countdown, `status()` picking the right event at five fixed clock times, and the
-dropdown's height-clamp math (`clampedPanelHeight`) against three fixed screen geometries.
-
-Neither suite talks to Google. The parts that do are three lines each and are exercised for real by
-`node bin/auth.js --check`.
+Neither talks to Google. The three lines that do are exercised by `node bin/auth.js --check`.
 
 ## Uninstall
 
 ```bash
-bash uninstall.sh            # stop and remove the app and both LaunchAgents
-bash uninstall.sh --purge    # also delete cached events, sync state, logs, and the token
+bash uninstall.sh            # remove app + both LaunchAgents
+bash uninstall.sh --purge    # also delete cached events, sync state, logs, token
 ```
 
-Synced notes are never touched, at either level. They are your files. Revoke the Google grant at
-<https://myaccount.google.com/permissions>.
+Synced notes are never touched — revoke the Google grant at <https://myaccount.google.com/permissions>.
 
 ## Known rough edges
 
-- The countdown rounds seconds *up* before converting to minutes, so it never reads `0m` while a
-  meeting is still ahead of you. 19 minutes 59 seconds reads `19m left`; 40 seconds reads `1m left`.
-- Only today. A meeting at 9am tomorrow shows as `No meetings` after today's last one ends.
-- Multi-monitor: the panel opens on the screen holding the menu bar item and is clamped to that
-  screen's visible frame.
-- If you also run the `meeting-vault` version of this app, both install to
-  `~/Applications/NextMeeting.app`. `build.sh --install` detects the other bundle identifier and
-  refuses rather than clobbering it; remove one first.
+- Countdown rounds seconds up: 19m59s reads `19m left`.
+- Today only — tomorrow's 9am shows as `No meetings` once today's list ends.
+- Multi-monitor: panel opens on the screen with the menu bar item, clamped to that screen.
+- Running the `meeting-vault` variant too? Both want `~/Applications/NextMeeting.app` — `build.sh --install` refuses rather than clobber the other.
+
+## Things that will break if edited
+
+1. **A GUI app can't find `node`.** No PATH shims from Finder/LaunchAgent launch — `refresh-events.sh` rebuilds a usable PATH; that's why the app shells out instead of running `node` directly.
+2. **The bundled script is a shim, not a copy.** It can't walk up from `Contents/Resources` to find the checkout — `build.sh` stamps the absolute path as `MNB_HOME`. Editing `refresh-events.sh` takes effect without rebuilding.
+3. **Don't fetch on the 1-second timer.** It only recomputes the display string; real refresh is every `REFRESH_INTERVAL` (300s) plus on wake.
+4. **Keep the monospaced-digit font.** Proportional digits reflow the menu bar on every tick.
+5. **The dropdown is a hand-built `NSPanel`, not `NSPopover`.** A popover leaves a gap for its arrow that can't be turned off. Consequence: `canBecomeKey` must be overridden, and the global close-monitor must skip clicks on the status item — otherwise a click both closes and reopens the panel.
+6. **`conferenceDataVersion=1` doesn't fix a missing join link.** It's a write-path param; `events.list` ignores it. No `entryPoints` means no conferencing, period.
+7. **Esc only works because the app self-activates.** The local key monitor only sees events delivered to an active app, and `.accessory` apps aren't active by default — `openPanel()` calls `NSApp.activate`. A short grace window (`suppressResignUntil`) stops the resulting resign-active notification from instantly closing the panel.
+8. **The panel closes on more than stray clicks.** `didResignActiveNotification` and space-change both call `closePanel()`. Route any new "left the app" signal through the same function.
+9. **`closePanel()` defers releasing the content view** — it can be called mid-teardown of the very view triggering it. A generation counter (`panelGeneration`) stops a fast close/reopen from wiping the new view.
+10. **Timezone can change without a sleep event.** `NSSystemTimeZoneDidChange` resets the cached zone and re-renders; nothing else stores a `Calendar`/`DateFormatter` across calls, so this is the one place staleness could hide.
+11. **Dropdown height is clamped and scrolls, on purpose.** A busy day (12+ meetings) used to grow the panel off-screen and cover the earliest meetings. `clampedPanelHeight` caps it; the row `ScrollView` absorbs the squeeze so the footer stays put.
 
 ## Licence
 
