@@ -5,6 +5,9 @@ Read this file to the end before running anything.
 `setup.sh` does the entire install and is safe to re-run. Two of its steps need a human, and one of
 them will hang forever if you run it yourself. That is the only reason this file exists.
 
+The menu bar is the whole install by default. Drive sync (Google Docs → local markdown) only goes
+in if you pass `--with-sync` — ask before adding it, don't assume it's wanted.
+
 ## The two steps you cannot do
 
 1. **Create the Google OAuth client.** Clicks in the Google Cloud console — create a project, enable
@@ -25,9 +28,11 @@ run it and paste the result.
 
 Tell them what they are approving, because the consent screen itself is vague: **read-only** access
 to Calendar and Drive, a token cached at `.secrets/token.json` on their own disk, and no server
-anywhere. If their Google account is a personal `gmail.com` one and the Cloud project is still in
-testing mode, the refresh token expires after 7 days and they will re-approve weekly. Workspace
-accounts do not have this problem. Worth saying up front — it is the single most common surprise.
+anywhere. Both scopes are requested at this step regardless of `--with-sync` — the Drive scope just
+sits unused if sync is never installed. If their Google account is a personal `gmail.com` one and the
+Cloud project is still in testing mode, the refresh token expires after 7 days and they will
+re-approve weekly. Workspace accounts do not have this problem. Worth saying up front — it is the
+single most common surprise.
 
 ## The sequence
 

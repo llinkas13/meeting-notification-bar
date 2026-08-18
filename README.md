@@ -104,16 +104,16 @@ meeting-notification-bar/
 ├── lib/                       pure logic, no side effects at import
 │   ├── google-auth.js         OAuth loopback consent, token refresh
 │   ├── calendar.js            events.list + joinable URL extraction
-│   ├── drive.js                files.list across drives, Doc → markdown export
+│   ├── drive.js               files.list across drives, Doc → markdown export
 │   ├── config.js              defaults, timezone resolution
 │   └── paths.js               shared file locations
 ├── menubar/                   the Swift menu bar app
-│   ├── NextMeeting.swift       NSStatusItem + SwiftUI panel
-│   ├── refresh-events.sh       runs the fetcher, writes JSON atomically
-│   └── build.sh                swiftc → .app bundle, no Xcode project
+│   ├── NextMeeting.swift      NSStatusItem + SwiftUI panel
+│   ├── refresh-events.sh      runs the fetcher, writes JSON atomically
+│   └── build.sh               swiftc → .app bundle, no Xcode project
 ├── launchd/                   Drive-sync LaunchAgent installer
 ├── docs/
-│   └── google-cloud-setup.md   OAuth client setup, 6 steps
+│   └── google-cloud-setup.md  OAuth client setup, 6 steps
 ├── test/                      node --test fixtures + specs
 ├── config.example.json        copy to config.json
 ├── setup.sh                   installer
