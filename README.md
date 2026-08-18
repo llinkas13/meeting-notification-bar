@@ -4,11 +4,11 @@
 2. Google Docs → local markdown sync (one-way)
 
 Both run entirely on your Mac, sharing one Google login.
+How to use: 
+- Click to open/close the dropdown. 
+- Click a meeting to open its call.
 
 ![Menu bar dropdown showing today's meetings](meeting-bar-screenshot.png)
-
-Click to open/close the dropdown. 
-Click a meeting to open its call.
 
 ## No model, no cloud
 
