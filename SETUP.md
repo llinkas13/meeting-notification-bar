@@ -41,7 +41,10 @@ single most common surprise.
    **Exit 0 means ready; exit 1 means it is not, and the count of unmet checks is on the last line.**
    Trust the exit code over the prose — and re-run it after every step below to confirm the step
    actually took, rather than assuming it did.
-2. **[them]** If `--check` says `no .secrets/oauth-client.json`: `docs/google-cloud-setup.md`, then
+2. **[them]** If `--check` says `no .secrets/oauth-client.json`: this file must come from a Google
+   Cloud project **they** create — never one you hand them, never reused from another checkout.
+   Using someone else's client fails with `access_denied: has not completed the Google
+   verification process`. Walk them through `docs/google-cloud-setup.md`, then:
    `mkdir -p .secrets && mv ~/Downloads/client_secret_*.json .secrets/oauth-client.json`
 3. **[them]** If `--check` says `not authorized yet`: `! node bin/auth.js --login`
 4. **[you]** `bash setup.sh` — or `bash setup.sh --with-sync` if they also want Google Docs mirrored

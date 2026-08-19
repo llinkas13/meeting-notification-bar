@@ -78,12 +78,16 @@ step "3. Google credentials"
 
 if [ ! -f .secrets/oauth-client.json ] && [ "$CHECK_ONLY" = 1 ]; then
   # --check reports, it never halts: the point is to see every step's state in one pass.
-  warn "no .secrets/oauth-client.json — see docs/google-cloud-setup.md"
+  warn "no .secrets/oauth-client.json — must come from a Google Cloud project YOU create (docs/google-cloud-setup.md); never reuse a client_secret.json someone else gives you"
 elif [ ! -f .secrets/oauth-client.json ]; then
   cat >&2 <<'MSG'
   stop  no .secrets/oauth-client.json
 
         This is the browser-clicks part, and it is the only part of setup that is not scripted.
+        This file must come from a Google Cloud project YOU personally create — never one the
+        developer sends you, never copied from another checkout. Using someone else's client
+        fails later with "access_denied: has not completed the Google verification process."
+
         Follow docs/google-cloud-setup.md — create a project, enable the Calendar and Drive APIs,
         create an OAuth client of type "Desktop app", download the JSON, then:
 

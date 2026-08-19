@@ -65,6 +65,9 @@ you are on gmail.com and the menu bar goes stale weekly, that is why — re-run
 
 ## 5. Put the JSON where the code looks for it
 
+This must be the JSON you just downloaded in step 4, from the project you created in step 1 —
+not a file someone else sent you, and not one copied from another checkout.
+
 ```bash
 cd /path/to/meeting-notification-bar
 mkdir -p .secrets
@@ -102,6 +105,7 @@ Cloud console if you want no trace of it.
 | What you see | Cause |
 |---|---|
 | `access_denied` on the consent screen | The account is not in **Test users**, or you approved with a different Google account than the one you added. |
+| `access_denied`: "has not completed the Google verification process ... can only be accessed by developer-approved testers" | You're not using your own OAuth client — `.secrets/oauth-client.json` points at someone else's Google Cloud project (e.g. the repo author's). Redo steps 1–5 with your own project. |
 | `Google returned no refresh_token` | A previous grant is still live, so Google reissued without one. Revoke at myaccount.google.com/permissions and retry. |
 | `not authorized yet` | No `.secrets/token.json`. Run `--login`. |
 | `no OAuth client at .secrets/oauth-client.json` | Step 5 did not happen, or the file is named differently. |

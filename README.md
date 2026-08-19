@@ -51,6 +51,8 @@ git clone https://github.com/llinkas13/meeting-notification-bar.git
 cd meeting-notification-bar
 
 # 1. Make your own OAuth client — docs/google-cloud-setup.md, ~10 min
+# This JSON must come from a Google Cloud project YOU create. A shared/reused one
+# fails with "access_denied: has not completed the Google verification process."
 mkdir -p .secrets
 mv ~/Downloads/client_secret_*.json .secrets/oauth-client.json
 
